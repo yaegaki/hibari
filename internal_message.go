@@ -1,5 +1,7 @@
 package hibari
 
+import "context"
+
 type internalMessage struct {
 	kind internalMessageKind
 	body interface{}
@@ -18,8 +20,9 @@ const (
 )
 
 type internalJoinMessageBody struct {
-	user User
-	conn Conn
+	user    User
+	conn    Conn
+	userCtx context.Context
 }
 
 type internalPreLeaveMessageBody struct {

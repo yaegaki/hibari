@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -24,6 +25,12 @@ type roomAllocator struct {
 	rule    rule
 }
 
+type key int
+
+const (
+	customValueKey key = iota
+)
+
 func (ra roomAllocator) Alloc(id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
 		id: id,
@@ -40,7 +47,7 @@ type roomHandler struct {
 	ra    roomAllocator
 }
 
-func (rh *roomHandler) Authenticate(_ hibari.Room, id, secret string) (hibari.User, error) {
+func (rh *roomHandler) Authenticate(_ context.Context, _ hibari.Room, id, secret string) (hibari.User, error) {
 	u, ok := rh.ra.userMap[id]
 	if !ok {
 		return hibari.User{}, fmt.Errorf("Not found user: %v", id)
@@ -56,11 +63,19 @@ func (rh *roomHandler) Authenticate(_ hibari.Room, id, secret string) (hibari.Us
 	}, nil
 }
 
-func (rh *roomHandler) ValidateJoinUser(r hibari.Room, u hibari.User) error {
+func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, u hibari.User) error {
 	info := r.RoomInfo()
 
 	if len(info.UserMap) >= rh.ra.rule.maxUser {
 		return fmt.Errorf("No vacancy")
+	}
+
+	customValue := userCtx.Value("custom")
+	if customValue != nil {
+		v, ok := customValue.(string)
+		if ok {
+			log.Printf("%v CustomValue: %v", u.ID, v)
+		}
 	}
 
 	return nil
@@ -147,18 +162,22 @@ func main() {
 		panic(err)
 	}
 
-	roomA.Join("test1", "xxx", conn{name: "test1(roomA)"})
-	roomA.Join("test2", "yyy", conn{name: "test2(roomA)"})
-	roomA.Join("test3", "zzz", conn{name: "test3(roomA)"})
+	none := context.Background()
+	userCtxA := context.WithValue(none, customValueKey, "helloA")
+	userCtxB := context.WithValue(none, customValueKey, "helloB")
 
-	roomA.Join("test4", "q", conn{name: "test4(roomA)"})
+	roomA.Join(userCtxA, "test1", "xxx", conn{name: "test1(roomA)"})
+	roomA.Join(userCtxB, "test2", "yyy", conn{name: "test2(roomA)"})
+	roomA.Join(userCtxA, "test3", "zzz", conn{name: "test3(roomA)"})
+
+	roomA.Join(userCtxB, "test4", "q", conn{name: "test4(roomA)"})
 	<-time.After(100 * time.Millisecond)
-	roomA.Join("test4", "qqq", conn{name: "test4(roomA)"})
+	roomA.Join(userCtxA, "test4", "qqq", conn{name: "test4(roomA)"})
 	<-time.After(100 * time.Millisecond)
 
-	roomB.Join("test1", "xxx", conn{name: "test1(roomB)"})
-	roomB.Join("test2", "yyy", conn{name: "test2(roomB)"})
-	roomB.Join("test3", "zzz", conn{name: "test3(roomB)"})
+	roomB.Join(userCtxB, "test1", "xxx", conn{name: "test1(roomB)"})
+	roomB.Join(userCtxA, "test2", "yyy", conn{name: "test2(roomB)"})
+	roomB.Join(userCtxB, "test3", "zzz", conn{name: "test3(roomB)"})
 
 	roomA.Broadcast("test1", "hello!1")
 	<-time.After(100 * time.Millisecond)
