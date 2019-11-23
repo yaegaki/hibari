@@ -60,7 +60,7 @@ func (rh *roomHandler) ValidateJoinUser(r hibari.Room, u hibari.User) error {
 	info := r.RoomInfo()
 
 	if len(info.UserMap) >= rh.ra.rule.maxUser {
-		return fmt.Errorf("No vacancy: %v", u.ID)
+		return fmt.Errorf("No vacancy")
 	}
 
 	return nil
@@ -76,7 +76,15 @@ type conn struct {
 	name string
 }
 
-func (c conn) OnJoinRoom(r hibari.RoomInfo) error {
+func (c conn) OnAuthenticationFailed() {
+	log.Printf("Authentication failed: %v", c.name)
+}
+
+func (c conn) OnJoinFailed(err error) {
+	log.Printf("Join failed: %v reason: %v", c.name, err)
+}
+
+func (c conn) OnJoin(r hibari.RoomInfo) error {
 	log.Printf("%v: joinRoom!", c.name)
 	return nil
 }
@@ -117,9 +125,14 @@ func main() {
 				secret: "zzz",
 				name:   "test-user3",
 			},
+			"test4": user{
+				id:     "test4",
+				secret: "qqq",
+				name:   "test-user4",
+			},
 		},
 		rule: rule{
-			maxUser: 5,
+			maxUser: 3,
 		},
 	}
 	manager := hibari.NewManager(ra, nil)
@@ -137,6 +150,11 @@ func main() {
 	roomA.Join("test1", "xxx", conn{name: "test1(roomA)"})
 	roomA.Join("test2", "yyy", conn{name: "test2(roomA)"})
 	roomA.Join("test3", "zzz", conn{name: "test3(roomA)"})
+
+	roomA.Join("test4", "q", conn{name: "test4(roomA)"})
+	<-time.After(100 * time.Millisecond)
+	roomA.Join("test4", "qqq", conn{name: "test4(roomA)"})
+	<-time.After(100 * time.Millisecond)
 
 	roomB.Join("test1", "xxx", conn{name: "test1(roomB)"})
 	roomB.Join("test2", "yyy", conn{name: "test2(roomB)"})

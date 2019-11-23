@@ -170,7 +170,7 @@ func (r *room) RoomInfo() RoomInfo {
 func (r *room) Join(id, secret string, conn Conn) error {
 	u, err := r.handler.Authenticate(r, id, secret)
 	if err != nil {
-		r.logger.Printf("Authentication failed: %v", id)
+		conn.OnAuthenticationFailed()
 		conn.Close()
 		return err
 	}
@@ -258,14 +258,14 @@ func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 
 	err := r.handler.ValidateJoinUser(r, joinedUser.u)
 	if err != nil {
-		r.logger.Printf("Validation failed(joinuser): %v", joinedUser.u.ID)
+		joinedUser.conn.OnJoinFailed(err)
 		body.conn.Close()
 		return
 	}
 
-	err = joinedUser.conn.OnJoinRoom(r.RoomInfo())
+	err = joinedUser.conn.OnJoin(r.RoomInfo())
 	if err != nil {
-		body.conn.Close()
+		joinedUser.conn.Close()
 		return
 	}
 
