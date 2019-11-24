@@ -1,8 +1,10 @@
 package hibari
 
-import "sync"
-
-import "context"
+import (
+	"context"
+	"fmt"
+	"sync"
+)
 
 // Room .
 type Room interface {
@@ -41,6 +43,15 @@ type AlreadyRoomClosedError struct{}
 
 func (AlreadyRoomClosedError) Error() string {
 	return "Already room was closed"
+}
+
+// AlreadyUserJoinedError is occurred if user was already exists in the room
+type AlreadyUserJoinedError struct {
+	User User
+}
+
+func (e AlreadyUserJoinedError) Error() string {
+	return fmt.Sprintf("Already user was joined: ID(%v) Name(%v)", e.User.ID, e.User.Name)
 }
 
 type roomUser struct {
@@ -249,7 +260,9 @@ func (r *room) handleMessage(msg internalMessage) {
 
 func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 	if _, ok := r.userMap[body.user.ID]; ok {
-		r.logger.Printf("Already joined: %v", body.user.ID)
+		body.conn.OnJoinFailed(AlreadyUserJoinedError{
+			User: body.user,
+		})
 		body.conn.Close()
 		return
 	}
