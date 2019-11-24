@@ -4,8 +4,13 @@ import (
 	"sync"
 )
 
+// RoomMap is map of room
+type RoomMap map[string]Room
+
 // Manager management rooms
 type Manager interface {
+	RoomMap() RoomMap
+	RoomInfoAll() <-chan RoomInfo
 	GetOrCreateRoom(id string) (Room, error)
 	NotifyRoomClosed(id string)
 	Shutdown()
@@ -15,7 +20,7 @@ type manager struct {
 	option     ManagerOption
 	mu         *sync.Mutex
 	allocator  RoomAllocator
-	roomMap    map[string]Room
+	roomMap    RoomMap
 	shutdownCh chan struct{}
 }
 
@@ -41,6 +46,50 @@ func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
 	}
 
 	return m
+}
+
+func (m *manager) RoomMap() RoomMap {
+	roomMap := RoomMap{}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for k, v := range m.roomMap {
+		roomMap[k] = v
+	}
+
+	return roomMap
+}
+
+func (m *manager) RoomInfoAll() <-chan RoomInfo {
+	resultCh := make(chan RoomInfo)
+
+	var wg sync.WaitGroup
+	roomMap := m.RoomMap()
+	for _, v := range roomMap {
+		wg.Add(1)
+		room := v
+		var roomInfo *RoomInfo
+		op := room.Enqueue(func() {
+			ri := room.RoomInfo()
+			roomInfo = &ri
+		})
+
+		go func() {
+			<-op.Done()
+			if roomInfo != nil {
+				resultCh <- *roomInfo
+			}
+
+			wg.Done()
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	return resultCh
 }
 
 func (m *manager) GetOrCreateRoom(id string) (Room, error) {
@@ -92,9 +141,9 @@ func (m *manager) Shutdown() {
 	m.roomMap = map[string]Room{}
 	m.mu.Unlock()
 
-	chs := make([]chan struct{}, 0, len(roomMap))
+	chs := make([]<-chan struct{}, 0, len(roomMap))
 	for _, r := range roomMap {
-		chs = append(chs, r.Shutdown())
+		chs = append(chs, r.Shutdown().Done())
 	}
 
 	for _, ch := range chs {

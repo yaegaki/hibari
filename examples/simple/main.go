@@ -177,6 +177,15 @@ func main() {
 
 	roomB.Join(userCtxB, "test1", "xxx", conn{name: "test1(roomB)"})
 	roomB.Join(userCtxA, "test2", "yyy", conn{name: "test2(roomB)"})
+
+	<-time.After(100 * time.Millisecond)
+	for roomInfo := range manager.RoomInfoAll() {
+		log.Printf("Room: %v", roomInfo.ID)
+		for id, u := range roomInfo.UserMap {
+			log.Printf("User: %v(%v)", u.Name, id)
+		}
+	}
+
 	roomB.Join(userCtxB, "test3", "zzz", conn{name: "test3(roomB)"})
 
 	roomA.Broadcast("test1", "hello!1")

@@ -16,6 +16,7 @@ const (
 	internalBroadcastMessage
 	internalCustomMessage
 
+	internalInvokeMessage
 	internalShutdownMessage
 )
 
@@ -36,6 +37,10 @@ type internalLeaveMessageBody struct {
 type internalBroadcastMessageBody struct {
 	userID string
 	body   interface{}
+}
+
+type internalInvokeMessageBody struct {
+	f func()
 }
 
 type internalCustomMessageBody struct {

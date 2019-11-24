@@ -9,7 +9,8 @@ import (
 // Room .
 type Room interface {
 	Run()
-	Shutdown() chan struct{}
+	Shutdown() AsyncOperation
+	Enqueue(f func()) AsyncOperation
 
 	ID() string
 	RoomInfo() RoomInfo
@@ -35,6 +36,7 @@ type room struct {
 
 // RoomInfo is room information
 type RoomInfo struct {
+	ID      string
 	UserMap map[string]InRoomUser
 }
 
@@ -140,7 +142,7 @@ func (r *room) Run() {
 	})
 }
 
-func (r *room) Shutdown() chan struct{} {
+func (r *room) Shutdown() AsyncOperation {
 	finishCh := make(chan struct{})
 
 	go func() {
@@ -163,7 +165,29 @@ func (r *room) Shutdown() chan struct{} {
 		})
 	}()
 
-	return finishCh
+	return NewAsyncOperation(finishCh)
+}
+
+func (r *room) Enqueue(f func()) AsyncOperation {
+	finishCh := make(chan struct{})
+
+	go func() {
+		err := r.safeSendMessage(internalMessage{
+			kind: internalInvokeMessage,
+			body: internalInvokeMessageBody{
+				f: func() {
+					defer close(finishCh)
+					f()
+				},
+			},
+		})
+
+		if err != nil {
+			close(finishCh)
+		}
+	}()
+
+	return NewAsyncOperation(finishCh)
 }
 
 func (r *room) ID() string {
@@ -177,6 +201,7 @@ func (r *room) RoomInfo() RoomInfo {
 	}
 
 	return RoomInfo{
+		ID:      r.id,
 		UserMap: userMap,
 	}
 }
@@ -240,7 +265,6 @@ func (r *room) handleMessage(msg internalMessage) {
 		if body, ok := msg.body.(internalJoinMessageBody); ok {
 			r.handleJoinMessage(body)
 		}
-		break
 	case internalPreLeaveMessage:
 		if body, ok := msg.body.(internalPreLeaveMessageBody); ok {
 			r.handlePreLeaveMessage(body)
@@ -252,6 +276,10 @@ func (r *room) handleMessage(msg internalMessage) {
 	case internalBroadcastMessage:
 		if body, ok := msg.body.(internalBroadcastMessageBody); ok {
 			r.handleBroadcastMessage(body)
+		}
+	case internalInvokeMessage:
+		if body, ok := msg.body.(internalInvokeMessageBody); ok {
+			body.f()
 		}
 	default:
 		break
