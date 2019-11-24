@@ -249,7 +249,7 @@ func (r *room) handleMessage(msg internalMessage) {
 
 func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 	if _, ok := r.userMap[body.user.ID]; ok {
-		r.logger.Printf("Already joined: %v")
+		r.logger.Printf("Already joined: %v", body.user.ID)
 		body.conn.Close()
 		return
 	}
