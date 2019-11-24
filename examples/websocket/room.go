@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"time"
 
+	"github.com/vmihailenco/msgpack/v4"
 	"github.com/yaegaki/hibari"
 )
 
@@ -58,7 +60,28 @@ func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hi
 	return nil
 }
 
-func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ string) {
+func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, body interface{}) {
+	bin, ok := body.([]byte)
+	if !ok {
+		return
+	}
+
+	var customMsg customMessage
+	err := msgpack.Unmarshal(bin, &customMsg)
+	if err != nil {
+		return
+	}
+
+	switch customMsg.Kind {
+	case roomInfoMessage:
+		rh.handleRoomInfoMessage(r, user)
+	case diceMessage:
+		rh.handleDiceMessage(r, user)
+	default:
+	}
+}
+
+func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 	if len(r.RoomInfo().UserMap) > 0 {
 		return
 	}
@@ -68,4 +91,55 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ string) {
 
 func (rh *roomHandler) OnShutdown() {
 	log.Printf("Shutdown room %v", rh.id)
+}
+
+func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUser) {
+	conn, err := r.GetConn(user.User.ID)
+	if err != nil {
+		return
+	}
+
+	userMap := map[string]inRoomUser{}
+	for id, u := range r.RoomInfo().UserMap {
+		userMap[id] = inRoomUser{
+			Index: u.Index,
+			Name:  u.User.Name,
+		}
+	}
+
+	msg := customMessage{
+		Kind: roomInfoMessage,
+		Body: roomInfoMessageBody{
+			UserMap: userMap,
+		},
+	}
+	bin, err := msgpack.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	conn.OnBroadcast(user, bin)
+}
+
+func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) {
+
+	msg := customMessage{
+		Kind: diceMessage,
+		Body: diceMessageBody{
+			Value: rand.Intn(6),
+		},
+	}
+
+	bin, err := msgpack.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	for userID := range r.RoomInfo().UserMap {
+		conn, err := r.GetConn(userID)
+		if err != nil {
+			continue
+		}
+		conn.OnBroadcast(user, bin)
+	}
 }

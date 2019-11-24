@@ -44,5 +44,6 @@ type internalInvokeMessageBody struct {
 }
 
 type internalCustomMessageBody struct {
-	user roomUser
+	userID string
+	body   interface{}
 }

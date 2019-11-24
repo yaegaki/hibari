@@ -9,5 +9,5 @@ type User struct {
 // InRoomUser is user in the room
 type InRoomUser struct {
 	Index int
-	Name  string
+	User  User
 }

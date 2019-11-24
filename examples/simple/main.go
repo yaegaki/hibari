@@ -83,7 +83,10 @@ func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, 
 	return nil
 }
 
-func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ string) {
+func (rh *roomHandler) OnCustomMessage(r hibari.Room, _ hibari.InRoomUser, _ interface{}) {
+}
+
+func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 	if len(r.RoomInfo().UserMap) == 0 {
 		r.Shutdown()
 	}
@@ -111,17 +114,17 @@ func (c conn) OnJoin(r hibari.RoomInfo) error {
 }
 
 func (c conn) OnOtherUserJoin(u hibari.InRoomUser) error {
-	log.Printf("%v: other user join! %v", c.name, u.Name)
+	log.Printf("%v: other user join! %v", c.name, u.User.Name)
 	return nil
 }
 
 func (c conn) OnOtherUserLeave(u hibari.InRoomUser) error {
-	log.Printf("%v: other user leave! %v", c.name, u.Name)
+	log.Printf("%v: other user leave! %v", c.name, u.User.Name)
 	return nil
 }
 
 func (c conn) OnBroadcast(from hibari.InRoomUser, body interface{}) error {
-	log.Printf("%v: message %v from %v", c.name, body, from.Name)
+	log.Printf("%v: message %v from %v", c.name, body, from.User.Name)
 	return nil
 }
 
@@ -193,7 +196,7 @@ func main() {
 	for roomInfo := range manager.RoomInfoAll() {
 		log.Printf("Room: %v", roomInfo.ID)
 		for id, u := range roomInfo.UserMap {
-			log.Printf("User: %v(%v)", u.Name, id)
+			log.Printf("User: %v(%v)", u.User.Name, id)
 		}
 	}
 

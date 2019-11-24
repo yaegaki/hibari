@@ -96,14 +96,21 @@ func (c *conn) readPump() {
 			return
 		}
 
-		if msg.Kind != broadcastMessage {
+		switch msg.Kind {
+		case broadcastMessage:
+			err = room.Broadcast(userID, msg.Body)
+			if err != nil {
+				log.Printf("Can not broadcast message: %v", err)
+				return
+			}
+		case customMessage:
+			err = room.CustomMessage(userID, msg.Body)
+			if err != nil {
+				log.Printf("Can not send custom message: %v", err)
+				return
+			}
+		default:
 			log.Printf("Forbidden message kind: %v", msg.Kind)
-			return
-		}
-
-		err = room.Broadcast(userID, msg.Body)
-		if err != nil {
-			log.Printf("Can not broadcast message: %v", err)
 			return
 		}
 
@@ -196,7 +203,7 @@ func (canNotSendMessageError) Error() string {
 func toInRoomUser(u hibari.InRoomUser) inRoomUser {
 	return inRoomUser{
 		Index: u.Index,
-		Name:  u.Name,
+		Name:  u.User.Name,
 	}
 }
 

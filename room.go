@@ -15,9 +15,11 @@ type Room interface {
 
 	ID() string
 	RoomInfo() RoomInfo
+	GetConn(id string) (Conn, error)
 	Join(userCtx context.Context, id, secret string, conn Conn) error
 	Leave(id string) error
 	Broadcast(id string, body interface{}) error
+	CustomMessage(id string, body interface{}) error
 	Closed() bool
 }
 
@@ -74,7 +76,7 @@ type roomUser struct {
 func (u roomUser) InRoomUser() InRoomUser {
 	return InRoomUser{
 		Index: u.index,
-		Name:  u.u.Name,
+		User:  u.u,
 	}
 }
 
@@ -94,7 +96,8 @@ type RoomHandler interface {
 	Authenticate(userCtx context.Context, r Room, id, secret string) (User, error)
 	ValidateJoinUser(userCtx context.Context, r Room, u User) error
 
-	OnDisconnectUser(r Room, id string)
+	OnCustomMessage(r Room, user InRoomUser, body interface{})
+	OnDisconnectUser(r Room, user InRoomUser)
 	OnShutdown()
 }
 
@@ -111,7 +114,10 @@ func (internalRoomHandler) ValidateJoinUser(context.Context, Room, User) error {
 	return nil
 }
 
-func (internalRoomHandler) OnDisconnectUser(Room, string) {
+func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, interface{}) {
+}
+
+func (internalRoomHandler) OnDisconnectUser(Room, InRoomUser) {
 }
 
 func (internalRoomHandler) OnShutdown() {
@@ -244,6 +250,15 @@ func (r *room) RoomInfo() RoomInfo {
 	}
 }
 
+func (r *room) GetConn(id string) (Conn, error) {
+	u, ok := r.userMap[id]
+	if !ok {
+		return nil, fmt.Errorf("Not found")
+	}
+
+	return u.conn, nil
+}
+
 func (r *room) Join(userCtx context.Context, id, secret string, conn Conn) error {
 	u, err := r.handler.Authenticate(userCtx, r, id, secret)
 	if err != nil {
@@ -284,6 +299,17 @@ func (r *room) Broadcast(id string, body interface{}) error {
 	return r.safeSendMessage(msg)
 }
 
+func (r *room) CustomMessage(id string, body interface{}) error {
+	msg := internalMessage{
+		kind: internalCustomMessage,
+		body: internalCustomMessageBody{
+			userID: id,
+			body:   body,
+		},
+	}
+	return r.safeSendMessage(msg)
+}
+
 func (r *room) Closed() bool {
 	return r.closed
 }
@@ -314,6 +340,10 @@ func (r *room) handleMessage(msg internalMessage) {
 	case internalBroadcastMessage:
 		if body, ok := msg.body.(internalBroadcastMessageBody); ok {
 			r.handleBroadcastMessage(body)
+		}
+	case internalCustomMessage:
+		if body, ok := msg.body.(internalCustomMessageBody); ok {
+			r.handleCustomMessage(body)
 		}
 	case internalInvokeMessage:
 		if body, ok := msg.body.(internalInvokeMessageBody); ok {
@@ -387,7 +417,7 @@ func (r *room) handleLeaveMessage(body internalLeaveMessageBody) {
 		}
 	}
 
-	r.handler.OnDisconnectUser(r, body.user.u.ID)
+	r.handler.OnDisconnectUser(r, body.user.InRoomUser())
 }
 
 func (r *room) handleBroadcastMessage(body internalBroadcastMessageBody) {
@@ -403,6 +433,15 @@ func (r *room) handleBroadcastMessage(body internalBroadcastMessageBody) {
 			r.disconnect(*u)
 		}
 	}
+}
+
+func (r *room) handleCustomMessage(body internalCustomMessageBody) {
+	u, ok := r.userMap[body.userID]
+	if !ok {
+		return
+	}
+
+	r.handler.OnCustomMessage(r, u.InRoomUser(), body.body)
 }
 
 func (r *room) disconnect(u roomUser) {

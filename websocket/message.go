@@ -15,6 +15,7 @@ type messageKind int
 const (
 	joinMessage messageKind = iota
 	broadcastMessage
+	customMessage
 
 	onAuthenticationFailedMessage
 	onJoinFailedMessage

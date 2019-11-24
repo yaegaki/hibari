@@ -40,6 +40,10 @@
         <form id="chatForm">
             <input id="body"><input type="submit">
         </form>
+        <div>
+            <button id="roomInfoButton">RoomInfo</button>
+            <button id="diceButton">Dice</button>
+        </div>
         <button id="clearButton">clear</button>
     </div>
     <script>
@@ -48,13 +52,18 @@
 
         const joinMessage = 0;
         const broadcastMessage = 1;
+        const customMessage = 2;
 
-        const onAuthenticationFailedMessage = 2;
-        const onJoinFailedMessage = 3;
-        const onJoinMessage = 4;
-        const onOtherUserJoinMessage = 5;
-        const onOtherUserLeaveMessage = 6;
-        const onBroadcastMessage = 7;
+        const onAuthenticationFailedMessage = 3;
+        const onJoinFailedMessage = 4;
+        const onJoinMessage = 5;
+        const onOtherUserJoinMessage = 6;
+        const onOtherUserLeaveMessage = 7;
+        const onBroadcastMessage = 8;
+
+        const chatMessage = 0;
+        const roomInfoMessage = 1;
+        const diceMessage = 2;
 
         registerButton.addEventListener('click', () => {
             const xhr = new XMLHttpRequest();
@@ -112,7 +121,7 @@
                     add(`# LeaveUser - ${msg.body.user.name}`, 'notice');
                     break;
                 case onBroadcastMessage:
-                    add(`${msg.body.from.name}: ${decode(msg.body.body).chat}`, 'chat');
+                    handleBroadcast(msg.body);
                     break;
                 default:
                     break;
@@ -138,18 +147,63 @@
             e.preventDefault();
             if (ws === null) return;
 
-            ws.send(MessagePack.encode({
+            ws.send(encode({
                 kind: broadcastMessage,
                 body: encode({
-                    chat: body.value,
+                    kind: chatMessage,
+                    body: {
+                        chat: body.value,
+                    },
                 }),
             }));
             body.value = '';
         });
 
+        roomInfoButton.addEventListener('click', () => {
+            if (ws === null) return;
+
+            ws.send(encode({
+                kind: customMessage,
+                body: encode({
+                    kind: roomInfoMessage,
+                }),
+            }));
+        });
+
+        diceButton.addEventListener('click', () => {
+            if (ws === null) return;
+
+            ws.send(encode({
+                kind: customMessage,
+                body: encode({
+                    kind: diceMessage,
+                }),
+            }));
+        });
+
         clearButton.addEventListener('click', () => {
             clear()
         });
+
+        function handleBroadcast(body) {
+            const customBody = decode(body.body);
+            switch (customBody.kind) {
+            case chatMessage:
+                add(`${body.from.name}: ${customBody.body.chat}`, 'chat');
+                break;
+            case roomInfoMessage:
+                add('## CurrentRoomInfo', 'notice');
+                add('## Users', 'notice');
+                Object.entries(customBody.body.users).forEach(([k, v]) => {
+                    add(`- ${v.name}`, 'notice');
+                });
+                break;
+            case diceMessage:
+                add(`${body.from.name} roll the dice: ${customBody.body.value + 1}`, 'notice');
+            default:
+                break;
+            }
+        }
 
         function add(str, cl) {
             const div = document.createElement('div');
