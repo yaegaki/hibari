@@ -37,7 +37,9 @@ func (ra roomAllocator) Alloc(id string, m hibari.Manager) (hibari.Room, error) 
 		ra: ra,
 	}
 
-	return hibari.NewRoom(id, m, rh, nil), nil
+	return hibari.NewRoom(id, m, rh, hibari.RoomOption{
+		Deadline: 1 * time.Second,
+	}), nil
 }
 
 type roomHandler struct {
@@ -85,6 +87,10 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ string) {
 	if len(r.RoomInfo().UserMap) == 0 {
 		r.Shutdown()
 	}
+}
+
+func (rh *roomHandler) OnShutdown() {
+	log.Printf("Shutdown room: %v", rh.id)
 }
 
 type conn struct {
@@ -152,6 +158,11 @@ func main() {
 	}
 	manager := hibari.NewManager(ra, nil)
 
+	_, err := manager.GetOrCreateRoom("roomC")
+	if err != nil {
+		panic(err)
+	}
+
 	roomA, err := manager.GetOrCreateRoom("roomA")
 	if err != nil {
 		panic(err)
@@ -178,7 +189,7 @@ func main() {
 	roomB.Join(userCtxB, "test1", "xxx", conn{name: "test1(roomB)"})
 	roomB.Join(userCtxA, "test2", "yyy", conn{name: "test2(roomB)"})
 
-	<-time.After(100 * time.Millisecond)
+	<-time.After(1 * time.Second)
 	for roomInfo := range manager.RoomInfoAll() {
 		log.Printf("Room: %v", roomInfo.ID)
 		for id, u := range roomInfo.UserMap {
@@ -197,4 +208,5 @@ func main() {
 	roomB.Broadcast("test2", "hello!3")
 	<-time.After(100 * time.Millisecond)
 	manager.Shutdown()
+	<-time.After(100 * time.Millisecond)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/yaegaki/hibari"
 )
@@ -14,6 +15,7 @@ type roomAllocator struct {
 }
 
 type roomHandler struct {
+	id   string
 	db   db
 	rule roomRule
 }
@@ -24,11 +26,14 @@ type roomRule struct {
 
 func (ra *roomAllocator) Alloc(id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
+		id:   id,
 		db:   ra.db,
 		rule: ra.rule,
 	}
 
-	return hibari.NewRoom(id, m, rh, nil), nil
+	return hibari.NewRoom(id, m, rh, hibari.RoomOption{
+		Deadline: 5 * time.Second,
+	}), nil
 }
 
 func (rh *roomHandler) Authenticate(ctx context.Context, _ hibari.Room, id, secret string) (hibari.User, error) {
@@ -58,6 +63,9 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ string) {
 		return
 	}
 
-	log.Printf("Shutdown room %v", r.ID())
 	r.Shutdown()
+}
+
+func (rh *roomHandler) OnShutdown() {
+	log.Printf("Shutdown room %v", rh.id)
 }

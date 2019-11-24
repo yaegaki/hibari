@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Room .
@@ -20,8 +21,15 @@ type Room interface {
 	Closed() bool
 }
 
+// RoomOption configures room
+type RoomOption struct {
+	Deadline time.Duration
+	Logger   Logger
+}
+
 type room struct {
 	id           string
+	option       RoomOption
 	manager      Manager
 	handler      RoomHandler
 	userMap      map[string]*roomUser
@@ -78,7 +86,7 @@ type RoomAllocator interface {
 type internalRoomAllocator struct{}
 
 func (internalRoomAllocator) Alloc(id string, m Manager) (Room, error) {
-	return NewRoom(id, m, nil, nil), nil
+	return NewRoom(id, m, nil, RoomOption{}), nil
 }
 
 // RoomHandler customizes room behavior
@@ -87,6 +95,7 @@ type RoomHandler interface {
 	ValidateJoinUser(userCtx context.Context, r Room, u User) error
 
 	OnDisconnectUser(r Room, id string)
+	OnShutdown()
 }
 
 type internalRoomHandler struct{}
@@ -105,22 +114,32 @@ func (internalRoomHandler) ValidateJoinUser(context.Context, Room, User) error {
 func (internalRoomHandler) OnDisconnectUser(Room, string) {
 }
 
+func (internalRoomHandler) OnShutdown() {
+}
+
 // NewRoom creates a new Room
-func NewRoom(roomID string, m Manager, rh RoomHandler, logger Logger) Room {
+func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 	if rh == nil {
 		rh = internalRoomHandler{}
 	}
-	if logger == nil {
-		logger = stdLogger{}
+
+	if option.Deadline <= 0 {
+		option.Deadline = 10 * time.Second
 	}
+
+	if option.Logger == nil {
+		option.Logger = stdLogger{}
+	}
+
 	r := &room{
 		id:           roomID,
+		option:       option,
 		manager:      m,
 		handler:      rh,
 		userMap:      map[string]*roomUser{},
 		msgCh:        make(chan internalMessage),
 		shutdownCh:   make(chan struct{}),
-		logger:       logger,
+		logger:       option.Logger,
 		runOnce:      &sync.Once{},
 		shutdownOnce: &sync.Once{},
 	}
@@ -130,14 +149,33 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, logger Logger) Room {
 
 func (r *room) Run() {
 	r.runOnce.Do(func() {
-		for {
-			msg := <-r.msgCh
-			// r.logger.Printf("%v", msg)
-			if msg.kind == internalShutdownMessage {
-				break
-			}
+		t := time.NewTicker(r.option.Deadline)
+		defer t.Stop()
 
-			r.handleMessage(msg)
+		updatedTime := time.Now()
+		for {
+			select {
+			case msg := <-r.msgCh:
+				// r.logger.Printf("%v", msg)
+				if msg.kind == internalShutdownMessage {
+					r.handler.OnShutdown()
+					break
+				}
+
+				r.handleMessage(msg)
+				updatedTime = time.Now()
+			case <-t.C:
+				if len(r.userMap) > 0 {
+					updatedTime = time.Now()
+					continue
+				}
+
+				d := time.Now().Sub(updatedTime)
+				if d >= r.option.Deadline {
+					t.Stop()
+					r.Shutdown()
+				}
+			}
 		}
 	})
 }
