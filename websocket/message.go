@@ -13,12 +13,11 @@ type clientToServerMessage struct {
 type messageKind int
 
 const (
-	authenticationFailedMessage messageKind = iota
-	joinFailedMessage
-
-	joinMessage
+	joinMessage messageKind = iota
 	broadcastMessage
 
+	onAuthenticationFailedMessage
+	onJoinFailedMessage
 	onJoinMessage
 	onOtherUserJoinMessage
 	onOtherUserLeaveMessage

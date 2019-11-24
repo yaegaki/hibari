@@ -141,11 +141,11 @@ func (c *conn) writePump() {
 }
 
 func (c *conn) OnAuthenticationFailed() {
-	c.safeSendMessage(authenticationFailedMessage, nil)
+	c.safeSendMessage(onAuthenticationFailedMessage, nil)
 }
 
 func (c *conn) OnJoinFailed(error) {
-	c.safeSendMessage(joinFailedMessage, nil)
+	c.safeSendMessage(onJoinFailedMessage, nil)
 }
 
 func (c *conn) OnJoin(r hibari.RoomInfo) error {
@@ -178,7 +178,7 @@ func (c *conn) OnOtherUserLeave(u hibari.InRoomUser) error {
 
 func (c *conn) OnBroadcast(from hibari.InRoomUser, body interface{}) error {
 	msg := onBroadcastMessageBody{From: toInRoomUser(from), Body: body}
-	return c.safeSendMessage(broadcastMessage, msg)
+	return c.safeSendMessage(onBroadcastMessage, msg)
 }
 
 func (c *conn) Close() {

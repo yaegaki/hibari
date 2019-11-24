@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>hibari - Chat</title>
+    <script crossorigin src="https://unpkg.com/@msgpack/msgpack"></script>
+    <style>
+        body {
+            background: #eee;
+        }
+
+        #log {
+            height: 300px;
+            background: white;
+            overflow-y: auto;
+        }
+
+        .error {
+            color: #ff4545;
+        }
+
+        .notice {
+            color: gray;
+        }
+    </style>
+</head>
+<body>
+    <div id="log">
+    </div>
+    <div id="join">
+        <div>roomId:<input id="roomId"></div>
+        <div>id:<input id="id">password:<input id="password"></div>
+        <button id="registerButton">register</button>
+        <button id="joinButton">join</button>
+        <button id="leaveButton">leave</button>
+    </div>
+    <div id="chat">
+        <form id="chatForm">
+            <input id="body"><input type="submit">
+        </form>
+        <button id="clearButton">clear</button>
+    </div>
+    <script>
+        let ws = null;
+        const { encode, decode } = MessagePack;
+
+        const joinMessage = 0;
+        const broadcastMessage = 1;
+
+        const onAuthenticationFailedMessage = 2;
+        const onJoinFailedMessage = 3;
+        const onJoinMessage = 4;
+        const onOtherUserJoinMessage = 5;
+        const onOtherUserLeaveMessage = 6;
+        const onBroadcastMessage = 7;
+
+        registerButton.addEventListener('click', () => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/register');
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onload = () => {
+                if (xhr.status !== 200) {
+                    add('Register failed', 'error');
+                }
+                else {
+                    add(`Registered - ${id.value}`, 'notice');
+                }
+            };
+            xhr.send(`userId=${id.value}&password=${password.value}`);
+        });
+
+        joinButton.addEventListener('click', () => {
+            if (ws !== null) {
+                ws.close();
+            }
+            ws = new WebSocket("ws://localhost:23032/ws");
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                ws.send(MessagePack.encode({
+                    kind: joinMessage,
+                    body: encode({
+                        userId: id.value,
+                        secret: password.value,
+                        roomId: roomId.value,
+                    }),
+                }));
+            };
+
+            ws.onmessage = e => {
+                const msg = decode(e.data);
+                switch (msg.kind) {
+                case onAuthenticationFailedMessage:
+                    add('AuthenticationFailed', 'error');
+                    break;
+                case onJoinFailedMessage:
+                    add('JoinFailed', 'error');
+                    break;
+                case onJoinMessage:
+                    add(`# JoinRoom - ${roomId.value}`, 'notice');
+                    add('## Users', 'notice');
+                    Object.entries(msg.body.users).forEach(([k, v]) => {
+                        add(`- ${v.name}`, 'notice');
+                    });
+                    break;
+                case onOtherUserJoinMessage:
+                    add(`# JoinUser - ${msg.body.user.name}`, 'notice');
+                    break;
+                case onOtherUserLeaveMessage:
+                    add(`# LeaveUser - ${msg.body.user.name}`, 'notice');
+                    break;
+                case onBroadcastMessage:
+                    add(`${msg.body.from.name}: ${decode(msg.body.body).chat}`, 'chat');
+                    break;
+                default:
+                    break;
+                }
+                console.log(msg);
+            };
+
+            ws.onerror = () => {
+                add('# Disconnected', 'error');
+                ws = null;
+            };
+        });
+
+        leaveButton.addEventListener('click', () => {
+            if (ws !== null) {
+                ws.close();
+                ws = null;
+                add('LeaveRoom', 'notice');
+            }
+        });
+
+        chatForm.addEventListener('submit', e => {
+            e.preventDefault();
+            if (ws === null) return;
+
+            ws.send(MessagePack.encode({
+                kind: broadcastMessage,
+                body: encode({
+                    chat: body.value,
+                }),
+            }));
+            body.value = '';
+        });
+
+        clearButton.addEventListener('click', () => {
+            clear()
+        });
+
+        function add(str, cl) {
+            const div = document.createElement('div');
+            div.innerText = str;
+            div.setAttribute('class', cl);
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clear() {
+            log.innerHTML = '';
+        }
+    </script>
+</body>
+</html>
