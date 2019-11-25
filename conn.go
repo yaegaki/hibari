@@ -38,6 +38,11 @@ type ConnTransport interface {
 	Close()
 }
 
+// ConnOption configure conn
+type ConnOption struct {
+	SendBufferSize int
+}
+
 // SendMessageError is occured if send message failed
 type SendMessageError string
 
@@ -46,11 +51,11 @@ func (e SendMessageError) Error() string {
 }
 
 // StartConn starts reads and writes pump
-func StartConn(m Manager, ct ConnTransport) {
+func StartConn(m Manager, ct ConnTransport, option ConnOption) {
 	c := &conn{
 		manager:   m,
 		trans:     ct,
-		sendCh:    make(chan Message),
+		sendCh:    make(chan Message, option.SendBufferSize),
 		closeCh:   make(chan struct{}),
 		joinCh:    make(chan struct{}),
 		closeOnce: &sync.Once{},

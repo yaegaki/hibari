@@ -182,5 +182,5 @@ func ServeWs(m hibari.Manager, w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	hibari.StartConn(m, c)
+	hibari.StartConn(m, c, hibari.ConnOption{SendBufferSize: 10})
 }
