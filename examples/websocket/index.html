@@ -50,20 +50,20 @@
         let ws = null;
         const { encode, decode } = MessagePack;
 
-        const joinMessage = 0;
-        const broadcastMessage = 1;
-        const customMessage = 2;
+        const joinMessage = 1;
+        const broadcastMessage = 2;
+        const customMessage = 3;
 
-        const onAuthenticationFailedMessage = 3;
-        const onJoinFailedMessage = 4;
-        const onJoinMessage = 5;
-        const onOtherUserJoinMessage = 6;
-        const onOtherUserLeaveMessage = 7;
-        const onBroadcastMessage = 8;
+        const onAuthenticationFailedMessage = 0x11;
+        const onJoinFailedMessage = 0x12;
+        const onJoinMessage = 0x13;
+        const onOtherUserJoinMessage = 0x14;
+        const onOtherUserLeaveMessage = 0x15;
+        const onBroadcastMessage = 0x16;
 
-        const chatMessage = 0;
-        const roomInfoMessage = 1;
-        const diceMessage = 2;
+        const chatMessage = 1;
+        const roomInfoMessage = 2;
+        const diceMessage = 3;
 
         registerButton.addEventListener('click', () => {
             const xhr = new XMLHttpRequest();
@@ -88,13 +88,13 @@
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
-                ws.send(MessagePack.encode({
+                ws.send(encode({
                     kind: joinMessage,
-                    body: encode({
+                    body: {
                         userId: id.value,
                         secret: password.value,
                         roomId: roomId.value,
-                    }),
+                    },
                 }));
             };
 
@@ -164,9 +164,9 @@
 
             ws.send(encode({
                 kind: customMessage,
-                body: encode({
+                body: {
                     kind: roomInfoMessage,
-                }),
+                },
             }));
         });
 
@@ -175,9 +175,9 @@
 
             ws.send(encode({
                 kind: customMessage,
-                body: encode({
+                body: {
                     kind: diceMessage,
-                }),
+                },
             }));
         });
 

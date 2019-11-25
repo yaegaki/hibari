@@ -83,7 +83,7 @@ func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, 
 	return nil
 }
 
-func (rh *roomHandler) OnCustomMessage(r hibari.Room, _ hibari.InRoomUser, _ interface{}) {
+func (rh *roomHandler) OnCustomMessage(r hibari.Room, _ hibari.InRoomUser, _ hibari.CustomMessageKind, _ interface{}) {
 }
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {

@@ -1,25 +1,25 @@
 package main
 
+import "github.com/yaegaki/hibari"
+
 type customMessage struct {
-	Kind customMessageKind `msgpack:"kind"`
-	Body interface{}       `msgpack:"body"`
+	Kind hibari.CustomMessageKind `msgpack:"kind"`
+	Body interface{}              `msgpack:"body"`
 }
 
-type customMessageKind int
-
 const (
-	chatMessage customMessageKind = iota
+	chatMessage hibari.CustomMessageKind = iota + 1
 	roomInfoMessage
 	diceMessage
 )
 
-type inRoomUser struct {
+type shortUser struct {
 	Index int    `msgpack:"index"`
 	Name  string `msgpack:"name"`
 }
 
 type roomInfoMessageBody struct {
-	UserMap map[string]inRoomUser `msgpack:"users"`
+	UserMap map[string]shortUser `msgpack:"users"`
 }
 
 type diceMessageBody struct {

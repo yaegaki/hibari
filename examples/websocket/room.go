@@ -60,19 +60,8 @@ func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hi
 	return nil
 }
 
-func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, body interface{}) {
-	bin, ok := body.([]byte)
-	if !ok {
-		return
-	}
-
-	var customMsg customMessage
-	err := msgpack.Unmarshal(bin, &customMsg)
-	if err != nil {
-		return
-	}
-
-	switch customMsg.Kind {
+func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
+	switch kind {
 	case roomInfoMessage:
 		rh.handleRoomInfoMessage(r, user)
 	case diceMessage:
@@ -99,9 +88,9 @@ func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUs
 		return
 	}
 
-	userMap := map[string]inRoomUser{}
+	userMap := map[string]shortUser{}
 	for id, u := range r.RoomInfo().UserMap {
-		userMap[id] = inRoomUser{
+		userMap[id] = shortUser{
 			Index: u.Index,
 			Name:  u.User.Name,
 		}

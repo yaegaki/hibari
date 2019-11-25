@@ -3,9 +3,7 @@ package websocket
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	ws "github.com/gorilla/websocket"
@@ -13,13 +11,8 @@ import (
 	"github.com/yaegaki/hibari"
 )
 
-type conn struct {
-	ws        *ws.Conn
-	manager   hibari.Manager
-	sendCh    chan []byte
-	closeCh   chan struct{}
-	joinCh    chan struct{}
-	closeOnce *sync.Once
+type connTransport struct {
+	ws *ws.Conn
 }
 
 const (
@@ -37,207 +30,138 @@ var upgrader = ws.Upgrader{
 	},
 }
 
-func (c *conn) readPump() {
-	defer func() {
-		c.Close()
-	}()
-
-	c.ws.SetReadLimit(maxMessageSize)
-	c.ws.SetReadDeadline(time.Now().Add(pongWait))
-	c.ws.SetPongHandler(func(string) error {
-		c.ws.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-
-	msg, err := c.readWsMessage()
-	if err != nil {
-		log.Printf("Read error: %v", err)
-		return
-	}
-
-	if msg.Kind != joinMessage {
-		log.Printf("Invalid message kind: %v", msg.Kind)
-		return
-	}
-
-	var body joinMessageBody
-	err = msgpack.Unmarshal(msg.Body, &body)
-	if err != nil {
-		log.Printf("Unmarshal error: %v", err)
-		return
-	}
-	userID := body.UserID
-
-	room, err := c.manager.GetOrCreateRoom(body.RoomID)
-	if err != nil {
-		log.Printf("Room not found: %v", body.RoomID)
-		return
-	}
-
-	ctx := context.Background()
-	err = room.Join(ctx, userID, body.Secret, c)
-	if err != nil {
-		log.Printf("Join failed: %v", userID)
-		return
-	}
-
-	select {
-	case <-c.closeCh:
-		return
-	case <-c.joinCh:
-	}
-
-	defer room.Leave(userID)
-
-	for {
-		msg, err := c.readWsMessage()
-		if err != nil {
-			log.Printf("Read error: %v", err)
-			return
-		}
-
-		switch msg.Kind {
-		case broadcastMessage:
-			err = room.Broadcast(userID, msg.Body)
-			if err != nil {
-				log.Printf("Can not broadcast message: %v", err)
-				return
-			}
-		case customMessage:
-			err = room.CustomMessage(userID, msg.Body)
-			if err != nil {
-				log.Printf("Can not send custom message: %v", err)
-				return
-			}
-		default:
-			log.Printf("Forbidden message kind: %v", msg.Kind)
-			return
-		}
-
-		select {
-		case <-c.closeCh:
-			return
-		default:
-		}
-	}
+func (c *connTransport) Context() context.Context {
+	return context.Background()
 }
 
-func (c *conn) writePump() {
-	ticker := time.NewTicker(pingPeriod)
-	defer func() {
-		c.ws.Close()
-	}()
-
-	for {
-		select {
-		case <-c.closeCh:
-			c.ws.WriteMessage(ws.CloseMessage, []byte{})
-			return
-
-		case bin := <-c.sendCh:
-			if err := c.ws.WriteMessage(ws.BinaryMessage, bin); err != nil {
-				return
-			}
-
-		case <-ticker.C:
-			if err := c.ws.WriteMessage(ws.PingMessage, []byte{}); err != nil {
-				return
-			}
-		}
-	}
-}
-
-func (c *conn) OnAuthenticationFailed() {
-	c.safeSendMessage(onAuthenticationFailedMessage, nil)
-}
-
-func (c *conn) OnJoinFailed(error) {
-	c.safeSendMessage(onJoinFailedMessage, nil)
-}
-
-func (c *conn) OnJoin(r hibari.RoomInfo) error {
-	select {
-	case <-c.closeCh:
-		return fmt.Errorf("Already closed conn")
-	case c.joinCh <- struct{}{}:
-	}
-
-	userMap := map[string]inRoomUser{}
-	for id, u := range r.UserMap {
-		userMap[id] = toInRoomUser(u)
-	}
-
-	msg := onJoinMessageBody{
-		UserMap: userMap,
-	}
-	return c.safeSendMessage(onJoinMessage, msg)
-}
-
-func (c *conn) OnOtherUserJoin(u hibari.InRoomUser) error {
-	msg := otherUserJoinMessageBody{User: toInRoomUser(u)}
-	return c.safeSendMessage(onOtherUserJoinMessage, msg)
-}
-
-func (c *conn) OnOtherUserLeave(u hibari.InRoomUser) error {
-	msg := otherUserLeaveMessageBody{User: toInRoomUser(u)}
-	return c.safeSendMessage(onOtherUserLeaveMessage, msg)
-}
-
-func (c *conn) OnBroadcast(from hibari.InRoomUser, body interface{}) error {
-	msg := onBroadcastMessageBody{From: toInRoomUser(from), Body: body}
-	return c.safeSendMessage(onBroadcastMessage, msg)
-}
-
-func (c *conn) Close() {
-	c.closeOnce.Do(func() {
-		close(c.closeCh)
-	})
-}
-
-type canNotSendMessageError int
-
-func (canNotSendMessageError) Error() string {
-	return "Can not send message"
-}
-
-func toInRoomUser(u hibari.InRoomUser) inRoomUser {
-	return inRoomUser{
-		Index: u.Index,
-		Name:  u.User.Name,
-	}
-}
-
-func (c *conn) readWsMessage() (clientToServerMessage, error) {
+func (c *connTransport) ReadMessage() (hibari.Message, error) {
 	msgType, bin, err := c.ws.ReadMessage()
 	if err != nil {
-		return clientToServerMessage{}, fmt.Errorf("Can not read message")
+		return hibari.Message{}, err
 	}
 
 	if msgType != ws.BinaryMessage {
-		return clientToServerMessage{}, nil
+		return hibari.Message{}, fmt.Errorf("InvalidType message: %v", msgType)
 	}
 
-	var msg clientToServerMessage
+	var msg message
 	err = msgpack.Unmarshal(bin, &msg)
 	if err != nil {
-		return clientToServerMessage{}, err
+		return hibari.Message{}, fmt.Errorf("UnmarshalError")
 	}
 
-	return msg, err
+	var body interface{}
+	switch msg.Kind {
+	case hibari.JoinMessage:
+		temp, ok := msg.Body.(joinMessageBody)
+		if !ok {
+			break
+		}
+		body = hibari.JoinMessageBody{
+			UserID: temp.UserID,
+			Secret: temp.Secret,
+			RoomID: temp.RoomID,
+		}
+	case hibari.BroadcastMessage:
+		temp, ok := msg.Body.(broadcastMessageBody)
+		if !ok {
+			break
+		}
+		body = hibari.BroadcastMessageBody(temp)
+	case hibari.CustomMessage:
+		temp, ok := msg.Body.(customMessageBody)
+		if !ok {
+			break
+		}
+		body = hibari.CustomMessageBody{
+			Kind: temp.Kind,
+			Body: temp.Body,
+		}
+	}
+
+	if body == nil {
+		return hibari.Message{}, fmt.Errorf("Invalid body")
+	}
+
+	return hibari.Message{
+		Kind: msg.Kind,
+		Body: body,
+	}, nil
 }
 
-func (c *conn) safeSendMessage(kind messageKind, body interface{}) error {
-	bin, err := msgpack.Marshal(newMessage(kind, body))
+func (c *connTransport) WriteMessage(msg hibari.Message) error {
+	var body interface{}
+	switch msg.Kind {
+	case hibari.OnAuthenticationFailedMessage:
+		body = struct{}{}
+	case hibari.OnJoinFailedMessage:
+		body = struct{}{}
+	case hibari.OnJoinMessage:
+		temp, ok := msg.Body.(hibari.OnJoinMessageBody)
+		if !ok {
+			break
+		}
+		body = onJoinMessageBody{
+			UserMap: userMapFrom(temp.UserMap),
+		}
+	case hibari.OnOtherUserJoinMessage:
+		temp, ok := msg.Body.(hibari.OnOtherUserJoinMessageBody)
+		if !ok {
+			break
+		}
+		body = onOtherUserJoinMessageBody{
+			User: shortUserFrom(temp.User),
+		}
+	case hibari.OnOtherUserLeaveMessage:
+		temp, ok := msg.Body.(hibari.OnOtherUserLeaveMessageBody)
+		if !ok {
+			break
+		}
+		body = onOtherUserLeaveMessageBody{
+			User: shortUserFrom(temp.User),
+		}
+	case hibari.OnBroadcastMessage:
+		temp, ok := msg.Body.(hibari.OnBroadcastMessageBody)
+		if !ok {
+			break
+		}
+		bytes, ok := temp.Body.([]byte)
+		if !ok {
+			break
+		}
+		body = onBroadcastMessageBody{
+			From: shortUserFrom(temp.From),
+			Body: bytes,
+		}
+	default:
+	}
+
+	if body == nil {
+		return fmt.Errorf("Invalid body")
+	}
+
+	bin, err := msgpack.Marshal(message{
+		Kind: msg.Kind,
+		Body: body,
+	})
 	if err != nil {
 		return err
 	}
 
-	select {
-	case <-c.closeCh:
-		return canNotSendMessageError(0)
-	case c.sendCh <- bin:
-		return nil
-	}
+	return c.ws.WriteMessage(ws.BinaryMessage, bin)
+}
+
+func (*connTransport) PingPeriod() time.Duration {
+	return pingPeriod
+}
+
+func (c *connTransport) Ping() error {
+	return c.ws.WriteMessage(ws.PingMessage, []byte{})
+}
+
+func (c *connTransport) Close() {
+	c.ws.WriteMessage(ws.CloseMessage, []byte{})
+	c.ws.Close()
 }
 
 // ServeWs starts serve websocket
@@ -247,15 +171,16 @@ func ServeWs(m hibari.Manager, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := conn{
-		ws:        ws,
-		manager:   m,
-		sendCh:    make(chan []byte),
-		closeCh:   make(chan struct{}),
-		joinCh:    make(chan struct{}),
-		closeOnce: &sync.Once{},
+	c := &connTransport{
+		ws: ws,
 	}
 
-	go conn.readPump()
-	go conn.writePump()
+	c.ws.SetReadLimit(maxMessageSize)
+	c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetPongHandler(func(string) error {
+		c.ws.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	hibari.StartConn(m, c)
 }

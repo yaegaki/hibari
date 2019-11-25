@@ -45,5 +45,6 @@ type internalInvokeMessageBody struct {
 
 type internalCustomMessageBody struct {
 	userID string
+	kind   CustomMessageKind
 	body   interface{}
 }

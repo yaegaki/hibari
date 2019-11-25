@@ -19,7 +19,7 @@ type Room interface {
 	Join(userCtx context.Context, id, secret string, conn Conn) error
 	Leave(id string) error
 	Broadcast(id string, body interface{}) error
-	CustomMessage(id string, body interface{}) error
+	CustomMessage(id string, kind CustomMessageKind, body interface{}) error
 	Closed() bool
 }
 
@@ -96,7 +96,7 @@ type RoomHandler interface {
 	Authenticate(userCtx context.Context, r Room, id, secret string) (User, error)
 	ValidateJoinUser(userCtx context.Context, r Room, u User) error
 
-	OnCustomMessage(r Room, user InRoomUser, body interface{})
+	OnCustomMessage(r Room, user InRoomUser, kind CustomMessageKind, body interface{})
 	OnDisconnectUser(r Room, user InRoomUser)
 	OnShutdown()
 }
@@ -114,7 +114,7 @@ func (internalRoomHandler) ValidateJoinUser(context.Context, Room, User) error {
 	return nil
 }
 
-func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, interface{}) {
+func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, CustomMessageKind, interface{}) {
 }
 
 func (internalRoomHandler) OnDisconnectUser(Room, InRoomUser) {
@@ -299,11 +299,12 @@ func (r *room) Broadcast(id string, body interface{}) error {
 	return r.safeSendMessage(msg)
 }
 
-func (r *room) CustomMessage(id string, body interface{}) error {
+func (r *room) CustomMessage(id string, kind CustomMessageKind, body interface{}) error {
 	msg := internalMessage{
 		kind: internalCustomMessage,
 		body: internalCustomMessageBody{
 			userID: id,
+			kind:   kind,
 			body:   body,
 		},
 	}
@@ -441,7 +442,7 @@ func (r *room) handleCustomMessage(body internalCustomMessageBody) {
 		return
 	}
 
-	r.handler.OnCustomMessage(r, u.InRoomUser(), body.body)
+	r.handler.OnCustomMessage(r, u.InRoomUser(), body.kind, body.body)
 }
 
 func (r *room) disconnect(u roomUser) {
