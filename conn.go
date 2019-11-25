@@ -226,6 +226,8 @@ func (c *conn) safeSendMessage(msg Message) error {
 		return SendMessageError("Send message failed")
 	case c.sendCh <- msg:
 		return nil
+	default:
+		return SendMessageError("Connection is stucked")
 	}
 }
 
