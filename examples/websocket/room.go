@@ -26,7 +26,7 @@ type roomRule struct {
 	maxUser int
 }
 
-func (ra *roomAllocator) Alloc(id string, m hibari.Manager) (hibari.Room, error) {
+func (ra *roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
 		id:   id,
 		db:   ra.db,

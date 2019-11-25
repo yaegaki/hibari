@@ -19,7 +19,7 @@ type roomHandler struct {
 	userMap map[string]bool
 }
 
-func (roomAllocator) Alloc(id string, m hibari.Manager) (hibari.Room, error) {
+func (roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
 		id: id,
 		mu: &sync.Mutex{},

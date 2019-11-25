@@ -1,6 +1,7 @@
 package hibari
 
 import (
+	"context"
 	"sync"
 )
 
@@ -11,7 +12,8 @@ type RoomMap map[string]Room
 type Manager interface {
 	RoomMap() RoomMap
 	RoomInfoAll() <-chan RoomInfo
-	GetOrCreateRoom(id string) (Room, error)
+	ConfigContext(ctx context.Context, trans ConnTransport) (context.Context, error)
+	GetOrCreateRoom(ctx context.Context, id string) (Room, error)
 	NotifyRoomClosed(id string)
 	Shutdown()
 }
@@ -26,6 +28,7 @@ type manager struct {
 
 // ManagerOption configure manager
 type ManagerOption struct {
+	ContextConfiger ContextConfiger
 }
 
 // NewManager creates a new Manager
@@ -92,7 +95,15 @@ func (m *manager) RoomInfoAll() <-chan RoomInfo {
 	return resultCh
 }
 
-func (m *manager) GetOrCreateRoom(id string) (Room, error) {
+func (m *manager) ConfigContext(ctx context.Context, trans ConnTransport) (context.Context, error) {
+	if m.option.ContextConfiger == nil {
+		return ctx, nil
+	}
+
+	return m.option.ContextConfiger.Config(ctx, trans)
+}
+
+func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) {
 	m.mu.Lock()
 	r, ok := m.roomMap[id]
 	m.mu.Unlock()
@@ -100,7 +111,7 @@ func (m *manager) GetOrCreateRoom(id string) (Room, error) {
 	if ok {
 		return r, nil
 	}
-	newRoom, err := m.allocator.Alloc(id, m)
+	newRoom, err := m.allocator.Alloc(ctx, id, m)
 	if err != nil {
 		return nil, err
 	}

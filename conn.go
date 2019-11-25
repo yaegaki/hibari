@@ -88,13 +88,20 @@ func (c *conn) readPump() {
 	userID := body.UserID
 	roomID := body.RoomID
 
-	room, err := c.manager.GetOrCreateRoom(roomID)
+	ctx := c.trans.Context()
+	ctx, err = c.manager.ConfigContext(ctx, c.trans)
+	if err != nil {
+		log.Printf("Config context failed: %v", err)
+		return
+	}
+
+	room, err := c.manager.GetOrCreateRoom(ctx, roomID)
 	if err != nil {
 		log.Printf("Room not found: %v", roomID)
 		return
 	}
 
-	err = room.Join(c.trans.Context(), userID, body.Secret, c)
+	err = room.Join(ctx, userID, body.Secret, c)
 	if err != nil {
 		log.Printf("Join failed: %v", userID)
 		return

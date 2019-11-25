@@ -31,7 +31,7 @@ const (
 	customValueKey key = iota
 )
 
-func (ra roomAllocator) Alloc(id string, m hibari.Manager) (hibari.Room, error) {
+func (ra roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
 		id: id,
 		ra: ra,
@@ -161,17 +161,18 @@ func main() {
 	}
 	manager := hibari.NewManager(ra, nil)
 
-	_, err := manager.GetOrCreateRoom("roomC")
+	ctx := context.Background()
+	_, err := manager.GetOrCreateRoom(ctx, "roomC")
 	if err != nil {
 		panic(err)
 	}
 
-	roomA, err := manager.GetOrCreateRoom("roomA")
+	roomA, err := manager.GetOrCreateRoom(ctx, "roomA")
 	if err != nil {
 		panic(err)
 	}
 
-	roomB, err := manager.GetOrCreateRoom("roomB")
+	roomB, err := manager.GetOrCreateRoom(ctx, "roomB")
 	if err != nil {
 		panic(err)
 	}
