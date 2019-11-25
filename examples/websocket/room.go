@@ -107,7 +107,9 @@ func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUs
 		return
 	}
 
-	conn.OnBroadcast(user, bin)
+	if err = conn.OnBroadcast(user, bin); err != nil {
+		conn.Close()
+	}
 }
 
 func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) {
@@ -129,6 +131,9 @@ func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) 
 		if err != nil {
 			continue
 		}
-		conn.OnBroadcast(user, bin)
+
+		if err = conn.OnBroadcast(user, bin); err != nil {
+			conn.Close()
+		}
 	}
 }
