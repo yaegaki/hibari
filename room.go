@@ -378,12 +378,6 @@ func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 		return
 	}
 
-	err = joinedUser.conn.OnJoin(r.RoomInfo())
-	if err != nil {
-		joinedUser.conn.Close()
-		return
-	}
-
 	joinedRoomUser := joinedUser.InRoomUser()
 	for _, u := range r.userMap {
 		err = u.conn.OnOtherUserJoin(joinedRoomUser)
@@ -394,6 +388,12 @@ func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 
 	r.currentIndex++
 	r.userMap[joinedUser.u.ID] = joinedUser
+
+	err = joinedUser.conn.OnJoin(r.RoomInfo())
+	if err != nil {
+		joinedUser.conn.Close()
+		return
+	}
 }
 
 func (r *room) handlePreLeaveMessage(body internalPreLeaveMessageBody) {
