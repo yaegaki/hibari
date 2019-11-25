@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="div">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>hibari - Paint</title>
+    <script crossorigin src="https://unpkg.com/@msgpack/msgpack"></script>
+    <style>
+        body{
+            background: #eee;
+        }
+
+        h3 {
+            margin: 0em;
+        }
+
+        #main {
+            display: flex;
+            justify-content: center;
+        }
+
+        #canvas {
+            display: block;
+            background: white;
+            touch-action: none;
+        }
+
+        #form {
+            margin: 1em;
+            text-align: center;
+        }
+
+        #sidebar {
+            display: grid;
+            width: 200px;
+            height: 500px;
+            margin-left: 1em;
+            background: white;
+            grid-auto-rows: auto 1fr;
+        }
+
+        #userlist-inner {
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="main">
+        <canvas id="canvas" width="600" height="500"></canvas>
+        <div id="sidebar">
+            <div id="status">
+                <h3>Status</h3>
+                <div id="status-text">NotConnected</div>
+            </div>
+            <div id="userlist">
+                <h3 id="userlist-title">UserList</h3>
+                <div id="userlist-inner">
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="form">
+        Room:<input id="roomInput">Name:<input id="nameInput"><button id="joinButton">Join</button><button id="clearButton">clear</button>
+    </div>
+    <script src="/main.js"></script>
+</body>
+</html>
