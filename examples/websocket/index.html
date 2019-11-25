@@ -84,7 +84,8 @@
             if (ws !== null) {
                 ws.close();
             }
-            ws = new WebSocket("ws://localhost:23032/ws");
+
+            ws = new WebSocket(`ws://${document.location.host}/ws`);
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
