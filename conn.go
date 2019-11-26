@@ -89,7 +89,7 @@ func (c *conn) readPump() {
 	roomID := body.RoomID
 
 	ctx := c.trans.Context()
-	ctx, err = c.manager.ConfigContext(ctx, c.trans)
+	ctx, err = c.manager.Negotiate(ctx, c.trans)
 	if err != nil {
 		log.Printf("Config context failed: %v", err)
 		return

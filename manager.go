@@ -12,7 +12,7 @@ type RoomMap map[string]Room
 type Manager interface {
 	RoomMap() RoomMap
 	RoomInfoAll() <-chan RoomInfo
-	ConfigContext(ctx context.Context, trans ConnTransport) (context.Context, error)
+	Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error)
 	GetOrCreateRoom(ctx context.Context, id string) (Room, error)
 	NotifyRoomClosed(id string)
 	Shutdown()
@@ -28,7 +28,7 @@ type manager struct {
 
 // ManagerOption configure manager
 type ManagerOption struct {
-	ContextConfiger ContextConfiger
+	Negotiator Negotiator
 }
 
 // NewManager creates a new Manager
@@ -95,12 +95,12 @@ func (m *manager) RoomInfoAll() <-chan RoomInfo {
 	return resultCh
 }
 
-func (m *manager) ConfigContext(ctx context.Context, trans ConnTransport) (context.Context, error) {
-	if m.option.ContextConfiger == nil {
+func (m *manager) Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error) {
+	if m.option.Negotiator == nil {
 		return ctx, nil
 	}
 
-	return m.option.ContextConfiger.Config(ctx, trans)
+	return m.option.Negotiator.Negotiate(ctx, trans)
 }
 
 func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) {
