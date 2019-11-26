@@ -85,10 +85,16 @@ func (c *conn) readPump() {
 		return
 	}
 
-	userID := body.UserID
 	roomID := body.RoomID
 
 	ctx := c.trans.Context()
+	user, err := c.manager.Authenticate(ctx, body.UserID, body.Secret)
+	if err != nil {
+		c.OnAuthenticationFailed()
+		log.Printf("Authentication failed: %v", err)
+		return
+	}
+
 	ctx, err = c.manager.Negotiate(ctx, c.trans)
 	if err != nil {
 		log.Printf("Config context failed: %v", err)
@@ -97,13 +103,13 @@ func (c *conn) readPump() {
 
 	room, err := c.manager.GetOrCreateRoom(ctx, roomID)
 	if err != nil {
-		log.Printf("Room not found: %v", roomID)
+		log.Printf("Can not get or create room: %v", roomID)
 		return
 	}
 
-	err = room.Join(ctx, userID, body.Secret, c)
+	err = room.Join(ctx, user, body.Secret, c)
 	if err != nil {
-		log.Printf("Join failed: %v", userID)
+		log.Printf("Join failed: %v(%v)", user.Name, user.ID)
 		return
 	}
 
@@ -117,7 +123,7 @@ func (c *conn) readPump() {
 	case <-c.joinCh:
 	}
 
-	defer room.Leave(userID)
+	defer room.Leave(user.ID)
 	for {
 		msg, err := c.trans.ReadMessage()
 		if err != nil {
@@ -126,7 +132,7 @@ func (c *conn) readPump() {
 
 		switch msg.Kind {
 		case BroadcastMessage:
-			err = room.Broadcast(userID, msg.Body)
+			err = room.Broadcast(user.ID, msg.Body)
 			if err != nil {
 				log.Printf("Can not broadcast message: %v", err)
 				return
@@ -138,7 +144,7 @@ func (c *conn) readPump() {
 				return
 			}
 
-			err = room.CustomMessage(userID, customBody.Kind, customBody.Body)
+			err = room.CustomMessage(user.ID, customBody.Kind, customBody.Body)
 			if err != nil {
 				log.Printf("Can not send custom message: %v", err)
 				return

@@ -2,13 +2,18 @@ package main
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/yaegaki/hibari"
 	"github.com/yaegaki/hibari/websocket"
 )
 
 func main() {
-	manager := hibari.NewManager(roomAllocator{}, nil)
+	manager := hibari.NewManager(roomAllocator{}, &hibari.ManagerOption{
+		Authenticator: authenticator{
+			mu: &sync.Mutex{},
+		},
+	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "index.html")

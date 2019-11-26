@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"sync"
-	"unicode/utf8"
 
 	"github.com/yaegaki/hibari"
 )
@@ -14,34 +11,15 @@ type roomAllocator struct {
 }
 
 type roomHandler struct {
-	id      string
-	mu      *sync.Mutex
-	userMap map[string]bool
+	id string
 }
 
 func (roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
 		id: id,
-		mu: &sync.Mutex{},
 	}
 
 	return hibari.NewRoom(id, m, rh, hibari.RoomOption{}), nil
-}
-
-func (rh *roomHandler) Authenticate(ctx context.Context, _ hibari.Room, id, secret string) (hibari.User, error) {
-	rh.mu.Lock()
-	defer rh.mu.Unlock()
-
-	if utf8.RuneCountInString(id) > 8 {
-		return hibari.User{}, fmt.Errorf("Too long id")
-	}
-
-	_, ok := rh.userMap[id]
-	if ok {
-		return hibari.User{}, fmt.Errorf("Already logined")
-	}
-
-	return hibari.User{ID: id, Name: id}, nil
 }
 
 func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {

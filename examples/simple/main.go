@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/yaegaki/hibari"
@@ -33,8 +32,8 @@ const (
 
 func (ra roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
 	rh := &roomHandler{
-		id: id,
-		ra: ra,
+		id:   id,
+		rule: ra.rule,
 	}
 
 	return hibari.NewRoom(id, m, rh, hibari.RoomOption{
@@ -42,15 +41,12 @@ func (ra roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) 
 	}), nil
 }
 
-type roomHandler struct {
-	id    string
-	mu    *sync.Mutex
-	index int
-	ra    roomAllocator
+type authenticator struct {
+	userMap map[string]user
 }
 
-func (rh *roomHandler) Authenticate(_ context.Context, _ hibari.Room, id, secret string) (hibari.User, error) {
-	u, ok := rh.ra.userMap[id]
+func (a authenticator) Authenticate(_ context.Context, id, secret string) (hibari.User, error) {
+	u, ok := a.userMap[id]
 	if !ok {
 		return hibari.User{}, fmt.Errorf("Not found user: %v", id)
 	}
@@ -65,10 +61,15 @@ func (rh *roomHandler) Authenticate(_ context.Context, _ hibari.Room, id, secret
 	}, nil
 }
 
+type roomHandler struct {
+	id   string
+	rule rule
+}
+
 func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, u hibari.User) error {
 	info := r.RoomInfo()
 
-	if len(info.UserMap) >= rh.ra.rule.maxUser {
+	if len(info.UserMap) >= rh.rule.maxUser {
 		return fmt.Errorf("No vacancy")
 	}
 
@@ -133,33 +134,36 @@ func (c conn) Close() {
 
 func main() {
 	ra := roomAllocator{
-		userMap: map[string]user{
-			"test1": user{
-				id:     "test1",
-				secret: "xxx",
-				name:   "test-user1",
-			},
-			"test2": user{
-				id:     "test2",
-				secret: "yyy",
-				name:   "test-user2",
-			},
-			"test3": user{
-				id:     "test3",
-				secret: "zzz",
-				name:   "test-user3",
-			},
-			"test4": user{
-				id:     "test4",
-				secret: "qqq",
-				name:   "test-user4",
-			},
-		},
 		rule: rule{
 			maxUser: 3,
 		},
 	}
-	manager := hibari.NewManager(ra, nil)
+	manager := hibari.NewManager(ra, &hibari.ManagerOption{
+		Authenticator: authenticator{
+			userMap: map[string]user{
+				"test1": user{
+					id:     "test1",
+					secret: "xxx",
+					name:   "test-user1",
+				},
+				"test2": user{
+					id:     "test2",
+					secret: "yyy",
+					name:   "test-user2",
+				},
+				"test3": user{
+					id:     "test3",
+					secret: "zzz",
+					name:   "test-user3",
+				},
+				"test4": user{
+					id:     "test4",
+					secret: "qqq",
+					name:   "test-user4",
+				},
+			},
+		},
+	})
 
 	ctx := context.Background()
 	_, err := manager.GetOrCreateRoom(ctx, "roomC")
@@ -181,17 +185,38 @@ func main() {
 	userCtxA := context.WithValue(none, customValueKey, "helloA")
 	userCtxB := context.WithValue(none, customValueKey, "helloB")
 
-	roomA.Join(userCtxA, "test1", "xxx", conn{name: "test1(roomA)"})
-	roomA.Join(userCtxB, "test2", "yyy", conn{name: "test2(roomA)"})
-	roomA.Join(userCtxA, "test3", "zzz", conn{name: "test3(roomA)"})
+	joinRoom := func(ctx context.Context, r hibari.Room, roomName string, id, secret string) {
+		user, err := manager.Authenticate(ctx, id, secret)
+		if err != nil {
+			log.Printf("room: %v authentication failed: %v", roomName, id)
+			return
+		}
 
-	roomA.Join(userCtxB, "test4", "q", conn{name: "test4(roomA)"})
+		err = r.Join(ctx, user, secret, conn{name: fmt.Sprintf("%v(%v)", user.Name, roomName)})
+		if err != nil {
+			log.Printf("room: %v join failed: %v(%v)", roomName, user.Name, user.ID)
+		}
+	}
+
+	joinRoomA := func(ctx context.Context, id, secret string) {
+		joinRoom(ctx, roomA, "roomA", id, secret)
+	}
+
+	joinRoomB := func(ctx context.Context, id, secret string) {
+		joinRoom(ctx, roomB, "roomB", id, secret)
+	}
+
+	joinRoomA(userCtxA, "test1", "xxx")
+	joinRoomA(userCtxB, "test2", "yyy")
+	joinRoomA(userCtxA, "test3", "zzz")
+
+	joinRoomA(userCtxB, "test4", "q")
 	<-time.After(100 * time.Millisecond)
-	roomA.Join(userCtxA, "test4", "qqq", conn{name: "test4(roomA)"})
+	joinRoomA(userCtxA, "test4", "qqq")
 	<-time.After(100 * time.Millisecond)
 
-	roomB.Join(userCtxB, "test1", "xxx", conn{name: "test1(roomB)"})
-	roomB.Join(userCtxA, "test2", "yyy", conn{name: "test2(roomB)"})
+	joinRoomB(userCtxB, "test1", "xxx")
+	joinRoomB(userCtxA, "test2", "yyy")
 
 	<-time.After(1 * time.Second)
 	for roomInfo := range manager.RoomInfoAll() {
@@ -201,7 +226,7 @@ func main() {
 		}
 	}
 
-	roomB.Join(userCtxB, "test3", "zzz", conn{name: "test3(roomB)"})
+	joinRoomB(userCtxB, "test3", "zzz")
 
 	roomA.Broadcast("test1", "hello!1")
 	<-time.After(100 * time.Millisecond)

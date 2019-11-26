@@ -21,9 +21,9 @@ const (
 )
 
 type internalJoinMessageBody struct {
-	user    User
-	conn    Conn
-	userCtx context.Context
+	ctx  context.Context
+	user User
+	conn Conn
 }
 
 type internalPreLeaveMessageBody struct {

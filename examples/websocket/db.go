@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
+
+	"github.com/yaegaki/hibari"
 )
 
 type db struct {
@@ -10,8 +13,8 @@ type db struct {
 	userMap map[string]user
 }
 
-func newDB() db {
-	return db{
+func newDB() *db {
+	return &db{
 		mu:      &sync.Mutex{},
 		userMap: map[string]user{},
 	}
@@ -44,4 +47,17 @@ func (db *db) findUser(id string) (user, error) {
 	}
 
 	return u, nil
+}
+
+func (db *db) Authenticate(ctx context.Context, id, secret string) (hibari.User, error) {
+	u, err := db.findUser(id)
+	if err != nil {
+		return hibari.User{}, err
+	}
+
+	if u.secret != secret {
+		return hibari.User{}, fmt.Errorf("invalid secret")
+	}
+
+	return hibari.User{ID: u.id, Name: u.name}, nil
 }

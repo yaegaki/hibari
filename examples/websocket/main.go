@@ -12,12 +12,13 @@ import (
 func main() {
 	db := newDB()
 	ra := &roomAllocator{
-		db: db,
 		rule: roomRule{
 			maxUser: 10,
 		},
 	}
-	manager := hibari.NewManager(ra, nil)
+	manager := hibari.NewManager(ra, &hibari.ManagerOption{
+		Authenticator: db,
+	})
 
 	db.registerUser("admin-a", "aaa", "★admin-a")
 	db.registerUser("admin-b", "bbb", "★admin-b")

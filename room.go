@@ -16,7 +16,7 @@ type Room interface {
 	ID() string
 	RoomInfo() RoomInfo
 	GetConn(id string) (Conn, error)
-	Join(userCtx context.Context, id, secret string, conn Conn) error
+	Join(ctx context.Context, user User, secret string, conn Conn) error
 	Leave(id string) error
 	Broadcast(id string, body interface{}) error
 	CustomMessage(id string, kind CustomMessageKind, body interface{}) error
@@ -67,10 +67,10 @@ func (e AlreadyUserJoinedError) Error() string {
 }
 
 type roomUser struct {
-	u       User
-	index   int
-	conn    Conn
-	userCtx context.Context
+	ctx   context.Context
+	u     User
+	index int
+	conn  Conn
 }
 
 func (u roomUser) InRoomUser() InRoomUser {
@@ -93,8 +93,7 @@ func (internalRoomAllocator) Alloc(_ context.Context, id string, m Manager) (Roo
 
 // RoomHandler customizes room behavior
 type RoomHandler interface {
-	Authenticate(userCtx context.Context, r Room, id, secret string) (User, error)
-	ValidateJoinUser(userCtx context.Context, r Room, u User) error
+	ValidateJoinUser(ctx context.Context, r Room, u User) error
 
 	OnCustomMessage(r Room, user InRoomUser, kind CustomMessageKind, body interface{})
 	OnDisconnectUser(r Room, user InRoomUser)
@@ -102,13 +101,6 @@ type RoomHandler interface {
 }
 
 type internalRoomHandler struct{}
-
-func (internalRoomHandler) Authenticate(_ context.Context, _ Room, id, secret string) (User, error) {
-	return User{
-		ID:   id,
-		Name: "",
-	}, nil
-}
 
 func (internalRoomHandler) ValidateJoinUser(context.Context, Room, User) error {
 	return nil
@@ -259,20 +251,13 @@ func (r *room) GetConn(id string) (Conn, error) {
 	return u.conn, nil
 }
 
-func (r *room) Join(userCtx context.Context, id, secret string, conn Conn) error {
-	u, err := r.handler.Authenticate(userCtx, r, id, secret)
-	if err != nil {
-		conn.OnAuthenticationFailed()
-		conn.Close()
-		return err
-	}
-
+func (r *room) Join(ctx context.Context, user User, secret string, conn Conn) error {
 	msg := internalMessage{
 		kind: internalJoinMessage,
 		body: internalJoinMessageBody{
-			user:    u,
-			conn:    conn,
-			userCtx: userCtx,
+			ctx:  ctx,
+			user: user,
+			conn: conn,
 		},
 	}
 	return r.safeSendMessage(msg)
@@ -365,13 +350,13 @@ func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 	}
 
 	joinedUser := &roomUser{
-		u:       body.user,
-		index:   r.currentIndex,
-		conn:    body.conn,
-		userCtx: body.userCtx,
+		ctx:   body.ctx,
+		u:     body.user,
+		index: r.currentIndex,
+		conn:  body.conn,
 	}
 
-	err := r.handler.ValidateJoinUser(joinedUser.userCtx, r, joinedUser.u)
+	err := r.handler.ValidateJoinUser(joinedUser.ctx, r, joinedUser.u)
 	if err != nil {
 		joinedUser.conn.OnJoinFailed(err)
 		joinedUser.conn.Close()

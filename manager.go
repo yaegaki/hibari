@@ -12,6 +12,7 @@ type RoomMap map[string]Room
 type Manager interface {
 	RoomMap() RoomMap
 	RoomInfoAll() <-chan RoomInfo
+	Authenticate(ctx context.Context, id, secret string) (User, error)
 	Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error)
 	GetOrCreateRoom(ctx context.Context, id string) (Room, error)
 	NotifyRoomClosed(id string)
@@ -28,7 +29,8 @@ type manager struct {
 
 // ManagerOption configure manager
 type ManagerOption struct {
-	Negotiator Negotiator
+	Authenticator Authenticator
+	Negotiator    Negotiator
 }
 
 // NewManager creates a new Manager
@@ -93,6 +95,14 @@ func (m *manager) RoomInfoAll() <-chan RoomInfo {
 	}()
 
 	return resultCh
+}
+
+func (m *manager) Authenticate(ctx context.Context, id, secret string) (User, error) {
+	if m.option.Authenticator == nil {
+		return User{ID: id, Name: id}, nil
+	}
+
+	return m.option.Authenticator.Authenticate(ctx, id, secret)
 }
 
 func (m *manager) Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error) {
