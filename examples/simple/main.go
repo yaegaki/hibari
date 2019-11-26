@@ -41,6 +41,9 @@ func (ra roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) 
 	}), nil
 }
 
+func (roomAllocator) Free(string) {
+}
+
 type authenticator struct {
 	userMap map[string]user
 }

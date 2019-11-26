@@ -2,6 +2,7 @@ package hibari
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
@@ -114,21 +115,32 @@ func (m *manager) Negotiate(ctx context.Context, trans ConnTransport) (context.C
 }
 
 func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) {
-	m.mu.Lock()
-	r, ok := m.roomMap[id]
-	m.mu.Unlock()
+	if id != "" {
+		m.mu.Lock()
+		r, ok := m.roomMap[id]
+		m.mu.Unlock()
 
-	if ok {
-		return r, nil
+		if ok {
+			return r, nil
+		}
 	}
+
 	newRoom, err := m.allocator.Alloc(ctx, id, m)
 	if err != nil {
 		return nil, err
 	}
 
+	// allow modify roomID by RoomAllocator
+	// if RoomAllocator modified roomID, must modify to unique
+	id = newRoom.ID()
+
+	if id == "" {
+		return nil, fmt.Errorf("Invalid RoomID")
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	r, ok = m.roomMap[id]
+	r, ok := m.roomMap[id]
 
 	if ok {
 		return r, nil
@@ -141,6 +153,8 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) 
 }
 
 func (m *manager) NotifyRoomClosed(id string) {
+	m.allocator.Free(id)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

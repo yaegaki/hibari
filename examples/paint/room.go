@@ -22,6 +22,9 @@ func (roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hi
 	return hibari.NewRoom(id, m, rh, hibari.RoomOption{}), nil
 }
 
+func (roomAllocator) Free(string) {
+}
+
 func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
 	return nil
 }

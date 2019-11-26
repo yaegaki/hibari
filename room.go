@@ -83,12 +83,16 @@ func (u roomUser) InRoomUser() InRoomUser {
 // RoomAllocator creates new room
 type RoomAllocator interface {
 	Alloc(ctx context.Context, id string, m Manager) (Room, error)
+	Free(id string)
 }
 
 type internalRoomAllocator struct{}
 
 func (internalRoomAllocator) Alloc(_ context.Context, id string, m Manager) (Room, error) {
 	return NewRoom(id, m, nil, RoomOption{}), nil
+}
+
+func (internalRoomAllocator) Free(string) {
 }
 
 // RoomHandler customizes room behavior

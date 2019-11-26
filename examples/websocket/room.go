@@ -35,6 +35,9 @@ func (ra *roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager)
 	}), nil
 }
 
+func (*roomAllocator) Free(string) {
+}
+
 func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
 	userCount := len(r.RoomInfo().UserMap)
 	if userCount >= rh.rule.maxUser {
