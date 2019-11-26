@@ -1,0 +1,64 @@
+syntax = "proto3";
+option go_package = "pb";
+
+import "google/protobuf/any.proto";
+
+message Message {
+    MessageKind Kind = 1;
+    google.protobuf.Any Body = 2;
+
+    enum MessageKind {
+        None = 0;
+        Join = 1;
+        Broadcast = 2;
+        Custom = 3;
+
+        OnAuthenticationFailedMessage = 11;
+        OnJoinFailedMessage = 12;
+        OnJoinMessage = 13;
+        OnOtherUserJoinMessage = 14;
+        OnOtherUserLeaveMessage = 15;
+        OnBroadcastMessage = 16;
+    }
+}
+
+message JoinMessageBody {
+    string UserID = 1;
+    string Secret = 2;
+    string RoomID = 3;
+}
+
+message BroadcastMessageBody {
+    bytes Body = 1;
+}
+
+message CustomMessageBody {
+    int32 Kind = 1;
+    google.protobuf.Any Body = 2;
+}
+
+message ShortUser {
+    int32 Index = 1;
+    string Name = 2;
+}
+
+message OnJoinMessageBody {
+    map<string, ShortUser> UserMap = 1;
+}
+
+message OnOtherUserJoinMessageBody {
+    ShortUser User = 1;
+}
+
+message OnOtherUserLeaveMessageBody {
+    ShortUser User = 1;
+}
+
+message OnBroadcastMessageBody {
+    ShortUser From = 1;
+    bytes Body = 2;
+}
+
+service Hibari {
+    rpc Conn (stream Message) returns (stream Message) {}
+}
