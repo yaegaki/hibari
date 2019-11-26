@@ -23,5 +23,6 @@ type roomInfoMessageBody struct {
 }
 
 type diceMessageBody struct {
-	Value int `msgpack:"value"`
+	User  shortUser `msgpack:"user"`
+	Value int       `msgpack:"value"`
 }

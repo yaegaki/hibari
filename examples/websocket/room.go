@@ -104,6 +104,10 @@ func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) 
 	msg := customMessage{
 		Kind: diceMessage,
 		Body: diceMessageBody{
+			User: shortUser{
+				Index: user.Index,
+				Name:  user.User.Name,
+			},
 			Value: rand.Intn(6),
 		},
 	}
@@ -113,13 +117,21 @@ func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) 
 		return
 	}
 
+	sys := hibari.InRoomUser{
+		Index: -1,
+		User: hibari.User{
+			ID:   "system",
+			Name: "system",
+		},
+	}
+
 	for userID := range r.RoomInfo().UserMap {
 		conn, err := r.GetConn(userID)
 		if err != nil {
 			continue
 		}
 
-		if err = conn.OnBroadcast(user, bin); err != nil {
+		if err = conn.OnBroadcast(sys, bin); err != nil {
 			conn.Close()
 		}
 	}

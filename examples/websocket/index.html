@@ -43,6 +43,7 @@
         <div>
             <button id="roomInfoButton">RoomInfo</button>
             <button id="diceButton">Dice</button>
+            <button id="cheatButton">Cheat</button>
         </div>
         <button id="clearButton">clear</button>
     </div>
@@ -182,6 +183,25 @@
             }));
         });
 
+        cheatButton.addEventListener('click', () => {
+            if (ws === null) return;
+
+            // send dice result directly
+            ws.send(encode({
+                kind: broadcastMessage,
+                body: encode({
+                    kind: diceMessage,
+                    body: {
+                        from: {
+                            index: 0,
+                            name: 'hoge',
+                        },
+                        value: 6,
+                    }
+                }),
+            }));
+        });
+
         clearButton.addEventListener('click', () => {
             clear()
         });
@@ -200,7 +220,13 @@
                 });
                 break;
             case diceMessage:
-                add(`${body.from.name} roll the dice: ${customBody.body.value + 1}`, 'notice');
+                // diceMessage must be sent by system(index == -1)
+                if (body.from.index >= 0) {
+                    add(`detect cheat! user - ${body.from.name}`, 'error');
+                }
+                else {
+                    add(`${customBody.body.user.name} roll the dice: ${customBody.body.value + 1}`, 'notice');
+                }
             default:
                 break;
             }
