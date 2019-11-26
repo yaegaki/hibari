@@ -5,12 +5,12 @@ const joinMessage = 1;
 const broadcastMessage = 2;
 const customMessage = 3;
 
-const onAuthenticationFailedMessage = 0x11;
-const onJoinFailedMessage = 0x12;
-const onJoinMessage = 0x13;
-const onOtherUserJoinMessage = 0x14;
-const onOtherUserLeaveMessage = 0x15;
-const onBroadcastMessage = 0x16;
+const onAuthenticationFailedMessage = 11;
+const onJoinFailedMessage = 12;
+const onJoinMessage = 13;
+const onOtherUserJoinMessage = 14;
+const onOtherUserLeaveMessage = 15;
+const onBroadcastMessage = 16;
 
 const statusElem = document.getElementById('status-text');
 const userListElem = document.getElementById('userlist-inner');

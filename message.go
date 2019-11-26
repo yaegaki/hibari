@@ -13,26 +13,26 @@ const (
 	// ClientToServer
 
 	// JoinMessage is message of join room request
-	JoinMessage MessageKind = 0x1
+	JoinMessage MessageKind = 1
 	// BroadcastMessage is message of user's broadcast request
-	BroadcastMessage MessageKind = 0x2
+	BroadcastMessage MessageKind = 2
 	// CustomMessage is message of user's custom message request
-	CustomMessage MessageKind = 0x3
+	CustomMessage MessageKind = 3
 
 	// ServerToClinet
 
 	// OnAuthenticationFailedMessage is message of authentication failed
-	OnAuthenticationFailedMessage MessageKind = 0x11
+	OnAuthenticationFailedMessage MessageKind = 11
 	// OnJoinFailedMessage is message of join room failed
-	OnJoinFailedMessage MessageKind = 0x12
+	OnJoinFailedMessage MessageKind = 12
 	// OnJoinMessage is message of join room
-	OnJoinMessage MessageKind = 0x13
+	OnJoinMessage MessageKind = 13
 	// OnOtherUserJoinMessage is message of other user's join room
-	OnOtherUserJoinMessage MessageKind = 0x14
+	OnOtherUserJoinMessage MessageKind = 14
 	// OnOtherUserLeaveMessage is message of other user's leave room
-	OnOtherUserLeaveMessage MessageKind = 0x15
+	OnOtherUserLeaveMessage MessageKind = 15
 	// OnBroadcastMessage is message of broadcast
-	OnBroadcastMessage MessageKind = 0x16
+	OnBroadcastMessage MessageKind = 16
 )
 
 // JoinMessageBody .
