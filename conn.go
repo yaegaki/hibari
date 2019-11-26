@@ -200,7 +200,7 @@ func (c *conn) OnJoinFailed(error) {
 func (c *conn) OnJoin(r RoomInfo) error {
 	select {
 	case <-c.closeCh:
-		return AlreadyRoomClosedError{}
+		return SendMessageError("Already conn is closed")
 	case c.joinCh <- struct{}{}:
 	}
 

@@ -44,14 +44,7 @@ func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hi
 	return nil
 }
 
-func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
-	switch kind {
-	case roomInfoMessage:
-		rh.handleRoomInfoMessage(r, user)
-	case diceMessage:
-		rh.handleDiceMessage(r, user)
-	default:
-	}
+func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 }
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
@@ -60,6 +53,16 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 	}
 
 	r.Shutdown()
+}
+
+func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
+	switch kind {
+	case roomInfoMessage:
+		rh.handleRoomInfoMessage(r, user)
+	case diceMessage:
+		rh.handleDiceMessage(r, user)
+	default:
+	}
 }
 
 func (rh *roomHandler) OnShutdown() {

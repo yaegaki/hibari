@@ -95,8 +95,9 @@ func (internalRoomAllocator) Alloc(_ context.Context, id string, m Manager) (Roo
 type RoomHandler interface {
 	ValidateJoinUser(ctx context.Context, r Room, u User) error
 
-	OnCustomMessage(r Room, user InRoomUser, kind CustomMessageKind, body interface{})
+	OnJoinUser(r Room, user InRoomUser)
 	OnDisconnectUser(r Room, user InRoomUser)
+	OnCustomMessage(r Room, user InRoomUser, kind CustomMessageKind, body interface{})
 	OnShutdown()
 }
 
@@ -106,10 +107,13 @@ func (internalRoomHandler) ValidateJoinUser(context.Context, Room, User) error {
 	return nil
 }
 
-func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, CustomMessageKind, interface{}) {
+func (internalRoomHandler) OnJoinUser(Room, InRoomUser) {
 }
 
 func (internalRoomHandler) OnDisconnectUser(Room, InRoomUser) {
+}
+
+func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, CustomMessageKind, interface{}) {
 }
 
 func (internalRoomHandler) OnShutdown() {
@@ -374,9 +378,12 @@ func (r *room) handleJoinMessage(body internalJoinMessageBody) {
 	r.currentIndex++
 	r.userMap[joinedUser.u.ID] = joinedUser
 
+	r.handler.OnJoinUser(r, joinedRoomUser)
+
 	err = joinedUser.conn.OnJoin(r.RoomInfo())
 	if err != nil {
 		joinedUser.conn.Close()
+		go r.Leave(joinedUser.u.ID)
 		return
 	}
 }
