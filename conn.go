@@ -107,7 +107,7 @@ func (c *conn) readPump() {
 		return
 	}
 
-	err = room.Join(ctx, user, body.Secret, c)
+	err = room.Join(ctx, user, c)
 	if err != nil {
 		log.Printf("Join failed: %v(%v)", user.Name, user.ID)
 		return
@@ -115,13 +115,6 @@ func (c *conn) readPump() {
 
 	// clear secret on memory
 	body = JoinMessageBody{}
-
-	// wait join
-	select {
-	case <-c.closeCh:
-		return
-	case <-c.joinCh:
-	}
 
 	defer room.Leave(user.ID)
 	for {
@@ -152,12 +145,6 @@ func (c *conn) readPump() {
 		default:
 			log.Printf("Forbidden message kind: %v", msg.Kind)
 			return
-		}
-
-		select {
-		case <-c.closeCh:
-			return
-		default:
 		}
 	}
 }
@@ -201,7 +188,7 @@ func (c *conn) OnJoin(r RoomInfo) error {
 	select {
 	case <-c.closeCh:
 		return SendMessageError("Already conn is closed")
-	case c.joinCh <- struct{}{}:
+	default:
 	}
 
 	userMap := map[string]ShortUser{}

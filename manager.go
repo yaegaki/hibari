@@ -74,16 +74,11 @@ func (m *manager) RoomInfoAll() <-chan RoomInfo {
 	for _, v := range roomMap {
 		wg.Add(1)
 		room := v
-		var roomInfo *RoomInfo
-		op := room.Enqueue(func() {
-			ri := room.RoomInfo()
-			roomInfo = &ri
-		})
 
 		go func() {
-			<-op.Done()
-			if roomInfo != nil {
-				resultCh <- *roomInfo
+			roomInfo, err := room.RoomInfo()
+			if err != nil {
+				resultCh <- roomInfo
 			}
 
 			wg.Done()

@@ -35,7 +35,8 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, u hibari.InRoomUser) {
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, u hibari.InRoomUser) {
 	log.Printf("leave user: %v(%v)", u.User.Name, u.User.ID)
-	if len(r.RoomInfo().UserMap) > 0 {
+	roomInfo, _ := r.RoomInfo()
+	if len(roomInfo.UserMap) > 0 {
 		return
 	}
 
@@ -44,7 +45,7 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, u hibari.InRoomUser) {
 
 func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
 	// disconnect user
-	go r.Leave(user.User.ID)
+	r.Leave(user.User.ID)
 }
 
 func (rh *roomHandler) OnShutdown() {

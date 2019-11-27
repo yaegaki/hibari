@@ -33,7 +33,8 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 }
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
-	if len(r.RoomInfo().UserMap) > 0 {
+	roomInfo, _ := r.RoomInfo()
+	if len(roomInfo.UserMap) > 0 {
 		return
 	}
 

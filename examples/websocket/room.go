@@ -39,7 +39,8 @@ func (*roomAllocator) Free(string) {
 }
 
 func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
-	userCount := len(r.RoomInfo().UserMap)
+	roomInfo, _ := r.RoomInfo()
+	userCount := len(roomInfo.UserMap)
 	if userCount >= rh.rule.maxUser {
 		return fmt.Errorf("No vacancy")
 	}
@@ -51,7 +52,8 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 }
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
-	if len(r.RoomInfo().UserMap) > 0 {
+	roomInfo, _ := r.RoomInfo()
+	if len(roomInfo.UserMap) > 0 {
 		return
 	}
 
@@ -79,7 +81,8 @@ func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUs
 	}
 
 	userMap := map[string]shortUser{}
-	for id, u := range r.RoomInfo().UserMap {
+	roomInfo, _ := r.RoomInfo()
+	for id, u := range roomInfo.UserMap {
 		userMap[id] = shortUser{
 			Index: u.Index,
 			Name:  u.User.Name,
@@ -128,7 +131,8 @@ func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) 
 		},
 	}
 
-	for userID := range r.RoomInfo().UserMap {
+	roomInfo, _ := r.RoomInfo()
+	for userID := range roomInfo.UserMap {
 		conn, err := r.GetConn(userID)
 		if err != nil {
 			continue

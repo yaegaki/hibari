@@ -70,9 +70,9 @@ type roomHandler struct {
 }
 
 func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, u hibari.User) error {
-	info := r.RoomInfo()
+	roomInfo, _ := r.RoomInfo()
 
-	if len(info.UserMap) >= rh.rule.maxUser {
+	if len(roomInfo.UserMap) >= rh.rule.maxUser {
 		return fmt.Errorf("No vacancy")
 	}
 
@@ -91,7 +91,8 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 }
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
-	if len(r.RoomInfo().UserMap) == 0 {
+	roomInfo, _ := r.RoomInfo()
+	if len(roomInfo.UserMap) == 0 {
 		r.Shutdown()
 	}
 }
@@ -198,7 +199,7 @@ func main() {
 			return
 		}
 
-		err = r.Join(ctx, user, secret, conn{name: fmt.Sprintf("%v(%v)", user.Name, roomName)})
+		err = r.Join(ctx, user, conn{name: fmt.Sprintf("%v(%v)", user.Name, roomName)})
 		if err != nil {
 			log.Printf("room: %v join failed: %v(%v)", roomName, user.Name, user.ID)
 		}

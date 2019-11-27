@@ -11,12 +11,15 @@ import (
 type Room interface {
 	Run()
 	Shutdown() AsyncOperation
-	Enqueue(f func()) AsyncOperation
+	Enqueue(f func()) (AsyncOperation, error)
+
+	// ForGoroutine creates goroutine safe a room.
+	ForGoroutine() Room
 
 	ID() string
-	RoomInfo() RoomInfo
+	RoomInfo() (RoomInfo, error)
 	GetConn(id string) (Conn, error)
-	Join(ctx context.Context, user User, secret string, conn Conn) error
+	Join(ctx context.Context, user User, conn Conn) error
 	Leave(id string) error
 	Broadcast(id string, body interface{}) error
 	CustomMessage(id string, kind CustomMessageKind, body interface{}) error
@@ -42,6 +45,10 @@ type room struct {
 	closed       bool
 	runOnce      *sync.Once
 	shutdownOnce *sync.Once
+}
+
+type goroutineSafeRoom struct {
+	r *room
 }
 
 // RoomInfo is room information
@@ -150,7 +157,7 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 		shutdownOnce: &sync.Once{},
 	}
 
-	return r
+	return r.ForGoroutine()
 }
 
 func (r *room) Run() {
@@ -212,33 +219,51 @@ func (r *room) Shutdown() AsyncOperation {
 	return NewAsyncOperation(finishCh)
 }
 
-func (r *room) Enqueue(f func()) AsyncOperation {
-	finishCh := make(chan struct{})
-
-	go func() {
-		err := r.safeSendMessage(internalMessage{
-			kind: internalInvokeMessage,
-			body: internalInvokeMessageBody{
-				f: func() {
-					defer close(finishCh)
-					f()
-				},
+// unsafeEnqueue must be invoked on goroutine for avoid deadlock.
+func (r *room) unsafeEnqueue(finishCh chan struct{}, f func()) error {
+	err := r.safeSendMessage(internalMessage{
+		kind: internalInvokeMessage,
+		body: internalInvokeMessageBody{
+			f: func() {
+				defer close(finishCh)
+				f()
 			},
-		})
+		},
+	})
 
-		if err != nil {
-			close(finishCh)
-		}
+	if err != nil {
+		close(finishCh)
+		return err
+	}
+
+	return nil
+}
+
+func (r *room) Enqueue(f func()) (AsyncOperation, error) {
+	finishCh := make(chan struct{})
+	var err error
+	go func() {
+		err = r.unsafeEnqueue(finishCh, f)
 	}()
 
-	return NewAsyncOperation(finishCh)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewAsyncOperation(finishCh), nil
+}
+
+func (r *room) ForGoroutine() Room {
+	return &goroutineSafeRoom{
+		r: r,
+	}
 }
 
 func (r *room) ID() string {
 	return r.id
 }
 
-func (r *room) RoomInfo() RoomInfo {
+func (r *room) RoomInfo() (RoomInfo, error) {
 	userMap := map[string]InRoomUser{}
 	for id, u := range r.userMap {
 		userMap[id] = u.InRoomUser()
@@ -247,61 +272,138 @@ func (r *room) RoomInfo() RoomInfo {
 	return RoomInfo{
 		ID:      r.id,
 		UserMap: userMap,
-	}
+	}, nil
 }
 
 func (r *room) GetConn(id string) (Conn, error) {
 	u, ok := r.userMap[id]
 	if !ok {
-		return nil, fmt.Errorf("Not found")
+		return nil, UserNotFoundError{User: u.u}
 	}
 
 	return u.conn, nil
 }
 
-func (r *room) Join(ctx context.Context, user User, secret string, conn Conn) error {
-	msg := internalMessage{
-		kind: internalJoinMessage,
-		body: internalJoinMessageBody{
-			ctx:  ctx,
-			user: user,
-			conn: conn,
-		},
+// AlreadyInRoomError is occurred if user is already joined the room.
+type AlreadyInRoomError struct {
+	User User
+}
+
+func (e AlreadyInRoomError) Error() string {
+	return fmt.Sprintf("User join failed because already in the room: %v(%v)", e.User.Name, e.User.ID)
+}
+
+func (r *room) Join(ctx context.Context, user User, conn Conn) error {
+	if _, ok := r.userMap[user.ID]; ok {
+		conn.OnJoinFailed(AlreadyUserJoinedError{
+			User: user,
+		})
+		conn.Close()
+		return AlreadyInRoomError{User: user}
 	}
-	return r.safeSendMessage(msg)
+
+	joinedUser := &roomUser{
+		ctx:   ctx,
+		u:     user,
+		index: r.currentIndex,
+		conn:  conn,
+	}
+
+	err := r.handler.ValidateJoinUser(joinedUser.ctx, r, joinedUser.u)
+	if err != nil {
+		joinedUser.conn.OnJoinFailed(err)
+		joinedUser.conn.Close()
+		return err
+	}
+
+	r.userMap[joinedUser.u.ID] = joinedUser
+
+	// r.RoomInfo() success always.
+	roomInfo, _ := r.RoomInfo()
+	err = joinedUser.conn.OnJoin(roomInfo)
+
+	if err != nil {
+		delete(r.userMap, joinedUser.u.ID)
+		joinedUser.conn.Close()
+		return err
+	}
+	r.currentIndex++
+
+	// user join completed.
+
+	joinedRoomUser := joinedUser.InRoomUser()
+	for _, u := range r.userMap {
+		if u.index == joinedRoomUser.Index {
+			continue
+		}
+
+		err = u.conn.OnOtherUserJoin(joinedRoomUser)
+		if err != nil {
+			r.enqueueLeave(u.u.ID)
+		}
+	}
+
+	// Notify joinUser after all message sent
+	r.handler.OnJoinUser(r, joinedRoomUser)
+
+	return nil
+}
+
+// UserNotFoundError is occurred if user not found.
+type UserNotFoundError struct {
+	User User
+}
+
+func (e UserNotFoundError) Error() string {
+	return fmt.Sprintf("User not found: %v(%v)", e.User.Name, e.User.ID)
 }
 
 func (r *room) Leave(id string) error {
-	msg := internalMessage{
-		kind: internalPreLeaveMessage,
-		body: internalPreLeaveMessageBody{
-			userID: id,
-		},
+	user, ok := r.userMap[id]
+	if !ok {
+		return UserNotFoundError{User: user.u}
 	}
-	return r.safeSendMessage(msg)
+
+	delete(r.userMap, id)
+	user.conn.Close()
+
+	inRoomUser := user.InRoomUser()
+	for _, u := range r.userMap {
+		err := u.conn.OnOtherUserLeave(inRoomUser)
+		if err != nil {
+			r.enqueueLeave(u.u.ID)
+		}
+	}
+
+	r.handler.OnDisconnectUser(r, inRoomUser)
+	return nil
 }
 
 func (r *room) Broadcast(id string, body interface{}) error {
-	msg := internalMessage{
-		kind: internalBroadcastMessage,
-		body: internalBroadcastMessageBody{
-			userID: id,
-			body:   body,
-		},
+	user, ok := r.userMap[id]
+	if !ok {
+		return UserNotFoundError{User: user.u}
 	}
-	return r.safeSendMessage(msg)
+
+	inRoomUser := user.InRoomUser()
+	for _, u := range r.userMap {
+		err := u.conn.OnBroadcast(inRoomUser, body)
+		if err != nil {
+			r.enqueueLeave(u.u.ID)
+		}
+	}
+
+	return nil
 }
 
 func (r *room) CustomMessage(id string, kind CustomMessageKind, body interface{}) error {
-	msg := internalMessage{
-		kind: internalCustomMessage,
-		body: internalCustomMessageBody{
-			userID: id,
-			kind:   kind,
-			body:   body,
-		},
+	user, ok := r.userMap[id]
+	if !ok {
+		return UserNotFoundError{User: user.u}
 	}
-	return r.safeSendMessage(msg)
+
+	r.handler.OnCustomMessage(r, user.InRoomUser(), kind, body)
+	return nil
 }
 
 func (r *room) Closed() bool {
@@ -319,18 +421,6 @@ func (r *room) safeSendMessage(msg internalMessage) error {
 
 func (r *room) handleMessage(msg internalMessage) {
 	switch msg.kind {
-	case internalJoinMessage:
-		if body, ok := msg.body.(internalJoinMessageBody); ok {
-			r.handleJoinMessage(body)
-		}
-	case internalPreLeaveMessage:
-		if body, ok := msg.body.(internalPreLeaveMessageBody); ok {
-			r.handlePreLeaveMessage(body)
-		}
-	case internalLeaveMessage:
-		if body, ok := msg.body.(internalLeaveMessageBody); ok {
-			r.handleLeaveMessage(body)
-		}
 	case internalBroadcastMessage:
 		if body, ok := msg.body.(internalBroadcastMessageBody); ok {
 			r.handleBroadcastMessage(body)
@@ -348,110 +438,123 @@ func (r *room) handleMessage(msg internalMessage) {
 	}
 }
 
-func (r *room) handleJoinMessage(body internalJoinMessageBody) {
-	if _, ok := r.userMap[body.user.ID]; ok {
-		body.conn.OnJoinFailed(AlreadyUserJoinedError{
-			User: body.user,
-		})
-		body.conn.Close()
-		return
-	}
-
-	joinedUser := &roomUser{
-		ctx:   body.ctx,
-		u:     body.user,
-		index: r.currentIndex,
-		conn:  body.conn,
-	}
-
-	err := r.handler.ValidateJoinUser(joinedUser.ctx, r, joinedUser.u)
-	if err != nil {
-		joinedUser.conn.OnJoinFailed(err)
-		joinedUser.conn.Close()
-		return
-	}
-
-	joinedRoomUser := joinedUser.InRoomUser()
-	for _, u := range r.userMap {
-		err = u.conn.OnOtherUserJoin(joinedRoomUser)
-		if err != nil {
-			r.disconnect(*u)
-		}
-	}
-
-	r.currentIndex++
-	r.userMap[joinedUser.u.ID] = joinedUser
-
-	r.handler.OnJoinUser(r, joinedRoomUser)
-
-	err = joinedUser.conn.OnJoin(r.RoomInfo())
-	if err != nil {
-		joinedUser.conn.Close()
-		go r.Leave(joinedUser.u.ID)
-		return
-	}
-}
-
-func (r *room) handlePreLeaveMessage(body internalPreLeaveMessageBody) {
-	u, ok := r.userMap[body.userID]
-	if !ok {
-		return
-	}
-
-	r.disconnect(*u)
-}
-
-func (r *room) handleLeaveMessage(body internalLeaveMessageBody) {
-	if _, ok := r.userMap[body.user.u.ID]; ok {
-		delete(r.userMap, body.user.u.ID)
-	}
-
-	inRoomUser := body.user.InRoomUser()
-	for _, u := range r.userMap {
-		err := u.conn.OnOtherUserLeave(inRoomUser)
-		if err != nil {
-			r.disconnect(*u)
-		}
-	}
-
-	r.handler.OnDisconnectUser(r, body.user.InRoomUser())
-}
-
 func (r *room) handleBroadcastMessage(body internalBroadcastMessageBody) {
-	u, ok := r.userMap[body.userID]
-	if !ok {
-		return
-	}
-
-	inRoomUser := u.InRoomUser()
-	for _, u := range r.userMap {
-		err := u.conn.OnBroadcast(inRoomUser, body.body)
-		if err != nil {
-			r.disconnect(*u)
-		}
-	}
+	r.Broadcast(body.userID, body.body)
 }
 
 func (r *room) handleCustomMessage(body internalCustomMessageBody) {
-	u, ok := r.userMap[body.userID]
-	if !ok {
-		return
-	}
-
-	r.handler.OnCustomMessage(r, u.InRoomUser(), body.kind, body.body)
+	r.CustomMessage(body.userID, body.kind, body.body)
 }
 
-func (r *room) disconnect(u roomUser) {
-	delete(r.userMap, u.u.ID)
-	u.conn.Close()
-	go func() {
-		msg := internalMessage{
-			kind: internalLeaveMessage,
-			body: internalLeaveMessageBody{
-				user: u,
-			},
-		}
+func (r *room) enqueueLeave(id string) {
+	r.Enqueue(func() {
+		r.Leave(id)
+	})
+}
 
-		r.safeSendMessage(msg)
-	}()
+func (r *goroutineSafeRoom) Run() {
+	r.r.Run()
+}
+
+func (r *goroutineSafeRoom) Shutdown() AsyncOperation {
+	return r.r.Shutdown()
+}
+
+func (r *goroutineSafeRoom) Enqueue(f func()) (AsyncOperation, error) {
+	finishCh := make(chan struct{})
+	err := r.r.unsafeEnqueue(finishCh, f)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return NewAsyncOperation(finishCh), nil
+}
+
+// ForGoroutine creates goroutine safe room.
+func (r *goroutineSafeRoom) ForGoroutine() Room {
+	return r
+}
+
+func (r *goroutineSafeRoom) ID() string {
+	return r.r.ID()
+}
+
+func (r *goroutineSafeRoom) RoomInfo() (roomInfo RoomInfo, innerErr error) {
+	op, err := r.Enqueue(func() {
+		roomInfo, innerErr = r.r.RoomInfo()
+	})
+
+	if err != nil {
+		return RoomInfo{}, err
+	}
+
+	<-op.Done()
+	return
+}
+
+func (r *goroutineSafeRoom) GetConn(id string) (conn Conn, innerErr error) {
+	op, err := r.Enqueue(func() {
+		conn, innerErr = r.r.GetConn(id)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	<-op.Done()
+	return
+}
+
+func (r *goroutineSafeRoom) Join(ctx context.Context, user User, conn Conn) (innerErr error) {
+	op, err := r.Enqueue(func() {
+		innerErr = r.r.Join(ctx, user, conn)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	<-op.Done()
+	return
+}
+
+func (r *goroutineSafeRoom) Leave(id string) (innerErr error) {
+	op, err := r.Enqueue(func() {
+		innerErr = r.r.Leave(id)
+	})
+
+	if err != nil {
+		return err
+	}
+
+	<-op.Done()
+	return
+}
+
+func (r *goroutineSafeRoom) Broadcast(id string, body interface{}) error {
+	msg := internalMessage{
+		kind: internalBroadcastMessage,
+		body: internalBroadcastMessageBody{
+			userID: id,
+			body:   body,
+		},
+	}
+	return r.r.safeSendMessage(msg)
+}
+
+func (r *goroutineSafeRoom) CustomMessage(id string, kind CustomMessageKind, body interface{}) error {
+	msg := internalMessage{
+		kind: internalCustomMessage,
+		body: internalCustomMessageBody{
+			userID: id,
+			kind:   kind,
+			body:   body,
+		},
+	}
+	return r.r.safeSendMessage(msg)
+}
+
+func (r *goroutineSafeRoom) Closed() bool {
+	return r.r.Closed()
 }
