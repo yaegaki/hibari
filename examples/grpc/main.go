@@ -47,6 +47,20 @@ func client(index int) {
 	if err != nil {
 		panic(err)
 	}
+
+	broadcastBody, _ := ptypes.MarshalAny(&pb.ShortUser{
+		Index: 99,
+		Name:  "broadcast-message-sample",
+	})
+
+	broadcast, _ := ptypes.MarshalAny(&pb.BroadcastMessageBody{
+		Body: broadcastBody,
+	})
+
+	stream.Send(&pb.Message{
+		Kind: pb.Message_Broadcast,
+		Body: broadcast,
+	})
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -78,6 +92,6 @@ func main() {
 	})
 
 	s := grpc.NewServer()
-	pb.RegisterHibariServer(s, hgrpc.NewHibariServer(manager))
+	pb.RegisterHibariServer(s, hgrpc.NewHibariServer(manager, hgrpc.HibariServerOption{}))
 	s.Serve(l)
 }

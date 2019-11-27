@@ -1,0 +1,6 @@
+syntax = "proto3";
+option go_package = "pb";
+
+message MessageBody {
+    string JSON = 1;
+}

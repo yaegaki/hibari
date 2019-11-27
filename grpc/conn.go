@@ -8,14 +8,21 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/yaegaki/hibari"
 	"github.com/yaegaki/hibari/grpc/pb"
 )
+
+// ConnTransportOption configure ConnTransport
+type ConnTransportOption struct {
+	EncoderDecoder hibari.AnyMessageEncoderDecoder
+}
 
 type connTransport struct {
 	closeCh   chan struct{}
 	stream    pb.Hibari_ConnServer
 	closeOnce *sync.Once
+	encDec    hibari.AnyMessageEncoderDecoder
 }
 
 func (c *connTransport) Context() context.Context {
@@ -46,13 +53,31 @@ func (c *connTransport) ReadMessage() (hibari.Message, error) {
 	case hibari.BroadcastMessage:
 		var body pb.BroadcastMessageBody
 		err = ptypes.UnmarshalAny(msg.Body, &body)
-		result.Body = body.Body
+		if err != nil {
+			break
+		}
+
+		anyBody, err := c.encodeAnyMessageBody(body.Body)
+		if err != nil {
+			return hibari.Message{}, err
+		}
+
+		result.Body = anyBody
 	case hibari.CustomMessage:
 		var body pb.CustomMessageBody
 		err = ptypes.UnmarshalAny(msg.Body, &body)
+		if err != nil {
+			break
+		}
+
+		anyBody, err := c.encodeAnyMessageBody(body.Body)
+		if err != nil {
+			return hibari.Message{}, err
+		}
+
 		result.Body = hibari.CustomMessageBody{
 			Kind: hibari.CustomMessageKind(body.Kind),
-			Body: body.Body,
+			Body: anyBody,
 		}
 	default:
 		err = fmt.Errorf("Invalid body")
@@ -102,13 +127,15 @@ func (c *connTransport) WriteMessage(msg hibari.Message) error {
 		if !ok {
 			break
 		}
-		bytes, ok := temp.Body.([]byte)
-		if !ok {
-			break
+
+		any, err := c.decodeAnyMessageBody(temp.Body)
+		if err != nil {
+			return err
 		}
+
 		body = &pb.OnBroadcastMessageBody{
 			From: shortUserFrom(temp.From),
-			Body: bytes,
+			Body: any,
 		}
 	}
 
@@ -141,6 +168,35 @@ func (c *connTransport) Close() {
 	c.closeOnce.Do(func() {
 		close(c.closeCh)
 	})
+}
+
+func (c *connTransport) encodeAnyMessageBody(body *any.Any) (interface{}, error) {
+	if c.encDec != nil {
+		result, err := c.encDec.EncodeAnyMessageBody(body)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	return body, nil
+}
+
+func (c *connTransport) decodeAnyMessageBody(body interface{}) (*any.Any, error) {
+	if c.encDec != nil {
+		temp, err := c.encDec.DecodeAnyMessageBody(body)
+		if err != nil {
+			return nil, err
+		}
+		body = temp
+	}
+
+	any, ok := body.(*any.Any)
+	if !ok {
+		return nil, fmt.Errorf("Invalid any message body")
+	}
+
+	return any, nil
 }
 
 func userMapFrom(userMap map[string]hibari.ShortUser) map[string]*pb.ShortUser {

@@ -29,7 +29,7 @@ message JoinMessageBody {
 }
 
 message BroadcastMessageBody {
-    bytes Body = 1;
+    google.protobuf.Any Body = 1;
 }
 
 message CustomMessageBody {
@@ -56,7 +56,7 @@ message OnOtherUserLeaveMessageBody {
 
 message OnBroadcastMessageBody {
     ShortUser From = 1;
-    bytes Body = 2;
+    google.protobuf.Any Body = 2;
 }
 
 service Hibari {

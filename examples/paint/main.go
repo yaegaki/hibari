@@ -24,7 +24,7 @@ func main() {
 	})
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		websocket.ServeWs(manager, w, r)
+		websocket.ServeWs(manager, websocket.ConnTransportOption{}, w, r)
 	})
 
 	http.ListenAndServe(":23032", nil)

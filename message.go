@@ -35,6 +35,14 @@ const (
 	OnBroadcastMessage MessageKind = 16
 )
 
+// AnyMessageEncoderDecoder encode/decode brodacast/custom message body to connTransport independent type
+type AnyMessageEncoderDecoder interface {
+	// EncodeAnyMessageBody convert ConnTransport dependent body to independent body
+	EncodeAnyMessageBody(body interface{}) (interface{}, error)
+	// DecodeAnyMessageBody convert ConnTransport independent body to dependent body
+	DecodeAnyMessageBody(body interface{}) (interface{}, error)
+}
+
 // JoinMessageBody .
 type JoinMessageBody struct {
 	UserID string

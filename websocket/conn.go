@@ -11,8 +11,14 @@ import (
 	"github.com/yaegaki/hibari"
 )
 
+// ConnTransportOption configure ConnTransport
+type ConnTransportOption struct {
+	EncoderDecoder hibari.AnyMessageEncoderDecoder
+}
+
 type connTransport struct {
-	ws *ws.Conn
+	ws     *ws.Conn
+	encDec hibari.AnyMessageEncoderDecoder
 }
 
 const (
@@ -67,15 +73,24 @@ func (c *connTransport) ReadMessage() (hibari.Message, error) {
 		if !ok {
 			break
 		}
-		body = hibari.BroadcastMessageBody(temp)
+		anyBody, err := c.encodeAnyMessageBody(temp)
+		if err != nil {
+			return hibari.Message{}, err
+		}
+		body = anyBody
 	case hibari.CustomMessage:
 		temp, ok := msg.Body.(customMessageBody)
 		if !ok {
 			break
 		}
+
+		anyBody, err := c.encodeAnyMessageBody(temp.Body)
+		if err != nil {
+			return hibari.Message{}, err
+		}
 		body = hibari.CustomMessageBody{
 			Kind: temp.Kind,
-			Body: temp.Body,
+			Body: anyBody,
 		}
 	}
 
@@ -125,10 +140,12 @@ func (c *connTransport) WriteMessage(msg hibari.Message) error {
 		if !ok {
 			break
 		}
-		bytes, ok := temp.Body.([]byte)
-		if !ok {
-			break
+
+		bytes, err := c.decodeAnyMessageBody(temp.Body)
+		if err != nil {
+			return err
 		}
+
 		body = onBroadcastMessageBody{
 			From: shortUserFrom(temp.From),
 			Body: bytes,
@@ -164,15 +181,45 @@ func (c *connTransport) Close() {
 	c.ws.Close()
 }
 
+func (c *connTransport) encodeAnyMessageBody(body []byte) (interface{}, error) {
+	if c.encDec != nil {
+		result, err := c.encDec.EncodeAnyMessageBody(body)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	return body, nil
+}
+
+func (c *connTransport) decodeAnyMessageBody(body interface{}) ([]byte, error) {
+	if c.encDec != nil {
+		temp, err := c.encDec.DecodeAnyMessageBody(body)
+		if err != nil {
+			return nil, err
+		}
+		body = temp
+	}
+
+	bin, ok := body.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("Invalid any message body")
+	}
+
+	return bin, nil
+}
+
 // ServeWs starts serve websocket
-func ServeWs(m hibari.Manager, w http.ResponseWriter, r *http.Request) {
+func ServeWs(m hibari.Manager, o ConnTransportOption, w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 
 	c := &connTransport{
-		ws: ws,
+		ws:     ws,
+		encDec: o.EncoderDecoder,
 	}
 
 	c.ws.SetReadLimit(maxMessageSize)
