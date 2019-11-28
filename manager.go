@@ -15,6 +15,7 @@ type Manager interface {
 	RoomInfoAll() <-chan RoomInfo
 	Authenticate(ctx context.Context, id, secret string) (User, error)
 	Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error)
+	GetRoom(id string) (Room, bool)
 	GetOrCreateRoom(ctx context.Context, id string) (Room, error)
 	NotifyRoomClosed(id string)
 	Shutdown()
@@ -24,8 +25,12 @@ type manager struct {
 	option     ManagerOption
 	mu         *sync.Mutex
 	allocator  RoomAllocator
-	roomMap    RoomMap
+	roomMap    roomMap
 	shutdownCh chan struct{}
+}
+
+type roomMap struct {
+	m *sync.Map
 }
 
 // ManagerOption configure manager
@@ -48,7 +53,7 @@ func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
 		option:    *option,
 		mu:        &sync.Mutex{},
 		allocator: ra,
-		roomMap:   map[string]Room{},
+		roomMap:   roomMap{m: &sync.Map{}},
 	}
 
 	return m
@@ -56,12 +61,11 @@ func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
 
 func (m *manager) RoomMap() RoomMap {
 	roomMap := RoomMap{}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	for k, v := range m.roomMap {
-		roomMap[k] = v
-	}
+	m.roomMap.Range(func(id string, r Room) bool {
+		roomMap[id] = r
+		return true
+	})
 
 	return roomMap
 }
@@ -69,21 +73,21 @@ func (m *manager) RoomMap() RoomMap {
 func (m *manager) RoomInfoAll() <-chan RoomInfo {
 	resultCh := make(chan RoomInfo)
 
-	var wg sync.WaitGroup
-	roomMap := m.RoomMap()
-	for _, v := range roomMap {
+	wg := &sync.WaitGroup{}
+	m.roomMap.Range(func(id string, r Room) bool {
 		wg.Add(1)
-		room := v
 
 		go func() {
-			roomInfo, err := room.RoomInfo()
+			defer wg.Done()
+			roomInfo, err := r.RoomInfo()
 			if err != nil {
-				resultCh <- roomInfo
+				return
 			}
-
-			wg.Done()
+			resultCh <- roomInfo
 		}()
-	}
+
+		return true
+	})
 
 	go func() {
 		wg.Wait()
@@ -109,11 +113,13 @@ func (m *manager) Negotiate(ctx context.Context, trans ConnTransport) (context.C
 	return m.option.Negotiator.Negotiate(ctx, trans)
 }
 
+func (m *manager) GetRoom(id string) (Room, bool) {
+	return m.roomMap.Load(id)
+}
+
 func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) {
 	if id != "" {
-		m.mu.Lock()
-		r, ok := m.roomMap[id]
-		m.mu.Unlock()
+		r, ok := m.roomMap.Load(id)
 
 		if ok {
 			return r, nil
@@ -126,22 +132,18 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) 
 	}
 
 	// allow modify roomID by RoomAllocator
-	// if RoomAllocator modified roomID, must modify to unique
 	id = newRoom.ID()
 
 	if id == "" {
 		return nil, fmt.Errorf("Invalid RoomID")
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	r, ok := m.roomMap[id]
+	newRoom, loaded := m.roomMap.LoadOrStore(id, newRoom)
 
-	if ok {
-		return r, nil
+	if loaded {
+		return newRoom, nil
 	}
 
-	m.roomMap[id] = newRoom
 	go newRoom.Run()
 
 	return newRoom, nil
@@ -150,10 +152,7 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) 
 func (m *manager) NotifyRoomClosed(id string) {
 	m.allocator.Free(id)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	room, ok := m.roomMap[id]
+	room, ok := m.roomMap.Load(id)
 	if !ok {
 		return
 	}
@@ -162,21 +161,53 @@ func (m *manager) NotifyRoomClosed(id string) {
 		return
 	}
 
-	delete(m.roomMap, id)
+	m.roomMap.Delete(id)
 }
 
 func (m *manager) Shutdown() {
 	m.mu.Lock()
-	roomMap := m.roomMap
-	m.roomMap = map[string]Room{}
+	rm := m.roomMap
+	m.roomMap = roomMap{m: &sync.Map{}}
 	m.mu.Unlock()
 
-	chs := make([]<-chan struct{}, 0, len(roomMap))
-	for _, r := range roomMap {
-		chs = append(chs, r.Shutdown().Done())
+	wg := sync.WaitGroup{}
+	rm.Range(func(id string, r Room) bool {
+		wg.Add(1)
+		ch := r.Shutdown().Done()
+		go func() {
+			<-ch
+			wg.Done()
+		}()
+		return true
+	})
+
+	wg.Wait()
+}
+
+func (m *roomMap) Load(id string) (Room, bool) {
+	r, ok := m.m.Load(id)
+	if !ok {
+		return nil, false
 	}
 
-	for _, ch := range chs {
-		<-ch
-	}
+	room, _ := r.(Room)
+	return room, true
+}
+
+func (m *roomMap) LoadOrStore(id string, room Room) (Room, bool) {
+	r, loaded := m.m.LoadOrStore(id, room)
+	room, _ = r.(Room)
+	return room, loaded
+}
+
+func (m *roomMap) Range(f func(id string, room Room) bool) {
+	m.m.Range(func(key, value interface{}) bool {
+		id, _ := key.(string)
+		room, _ := value.(Room)
+		return f(id, room)
+	})
+}
+
+func (m *roomMap) Delete(id string) {
+	m.m.Delete(id)
 }
