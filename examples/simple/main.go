@@ -37,7 +37,8 @@ func (ra roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) 
 	}
 
 	return hibari.NewRoom(id, m, rh, hibari.RoomOption{
-		Deadline: 1 * time.Second,
+		Deadline:    1 * time.Second,
+		Interceptor: interceptor{},
 	}), nil
 }
 
@@ -105,15 +106,26 @@ func (rh *roomHandler) OnShutdown() {
 }
 
 type conn struct {
-	name string
+	ctx    context.Context
+	cancel context.CancelFunc
+	name   string
+}
+
+func newConn(name string) conn {
+	ctx, cancel := context.WithCancel(context.Background())
+	return conn{
+		ctx:    ctx,
+		cancel: cancel,
+		name:   name,
+	}
+}
+
+func (c conn) Context() context.Context {
+	return c.ctx
 }
 
 func (c conn) OnAuthenticationFailed() {
 	log.Printf("Authentication failed: %v", c.name)
-}
-
-func (c conn) OnJoinFailed(err error) {
-	log.Printf("Join failed: %v reason: %v", c.name, err)
 }
 
 func (c conn) OnJoin(r hibari.RoomInfo) error {
@@ -137,6 +149,34 @@ func (c conn) OnBroadcast(from hibari.InRoomUser, body interface{}) error {
 }
 
 func (c conn) Close() {
+	c.cancel()
+}
+
+type interceptor struct {
+}
+
+func (interceptor) InterceptJoin(ctx context.Context, r hibari.Room, user hibari.User, conn hibari.Conn) (hibari.JoinInterceptionResult, context.Context) {
+	roomID := r.ID()
+	if roomID == "roomA" && user.ID == "test2" {
+		log.Printf("Pending:%v", user.ID)
+		pendingCtx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-time.After(3 * time.Second)
+			r.ForGoroutine().JoinWithoutInterception(ctx, user, conn)
+			cancel()
+		}()
+		return hibari.JoinInterceptionPending, pendingCtx
+	}
+
+	return hibari.JoinInterceptionAllow, nil
+}
+
+func (interceptor) InterceptBroadcast(r hibari.Room, user hibari.InRoomUser, body interface{}) hibari.MessageInterceptionResult {
+	return hibari.MessageInterceptionAllow
+}
+
+func (interceptor) InterceptCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) hibari.MessageInterceptionResult {
+	return hibari.MessageInterceptionAllow
 }
 
 func main() {
@@ -199,7 +239,7 @@ func main() {
 			return
 		}
 
-		err = r.Join(ctx, user, conn{name: fmt.Sprintf("%v(%v)", user.Name, roomName)})
+		err = r.Join(ctx, user, newConn(fmt.Sprintf("%v(%v)", user.Name, roomName)))
 		if err != nil {
 			log.Printf("room: %v join failed: %v(%v)", roomName, user.Name, user.ID)
 		}
@@ -214,6 +254,8 @@ func main() {
 	}
 
 	joinRoomA(userCtxA, "test1", "xxx")
+	joinRoomB(userCtxB, "test1", "xxx")
+
 	joinRoomA(userCtxB, "test2", "yyy")
 	joinRoomA(userCtxA, "test3", "zzz")
 
@@ -222,7 +264,6 @@ func main() {
 	joinRoomA(userCtxA, "test4", "qqq")
 	<-time.After(100 * time.Millisecond)
 
-	joinRoomB(userCtxB, "test1", "xxx")
 	joinRoomB(userCtxA, "test2", "yyy")
 
 	<-time.After(1 * time.Second)

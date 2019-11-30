@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"context"
 	"sync"
 
 	"github.com/yaegaki/hibari"
@@ -26,9 +27,10 @@ func NewHibariServer(m hibari.Manager, option HibariServerOption) pb.HibariServe
 }
 
 func (s *hibariServer) Conn(stream pb.Hibari_ConnServer) error {
-	closeCh := make(chan struct{})
+	ctx, cancel := context.WithCancel(stream.Context())
 	c := &connTransport{
-		closeCh:   closeCh,
+		ctx:       ctx,
+		cancel:    cancel,
 		stream:    stream,
 		closeOnce: &sync.Once{},
 		encDec:    s.option.TransOption.EncoderDecoder,
@@ -38,6 +40,6 @@ func (s *hibariServer) Conn(stream pb.Hibari_ConnServer) error {
 		SendBufferSize: 10,
 	})
 
-	<-closeCh
+	<-ctx.Done()
 	return nil
 }

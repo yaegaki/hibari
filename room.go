@@ -18,18 +18,23 @@ type Room interface {
 
 	ID() string
 	RoomInfo() (RoomInfo, error)
+	ExistsUser(id string) bool
 	GetConn(id string) (Conn, error)
 	Join(ctx context.Context, user User, conn Conn) error
+	JoinWithoutInterception(ctx context.Context, user User, conn Conn) error
 	Leave(id string) error
 	Broadcast(id string, body interface{}) error
+	BroadcastWithoutInterception(id string, body interface{}) error
 	CustomMessage(id string, kind CustomMessageKind, body interface{}) error
+	CustomMessageWithoutInterception(id string, kind CustomMessageKind, body interface{}) error
 	Closed() bool
 }
 
 // RoomOption configures room
 type RoomOption struct {
-	Deadline time.Duration
-	Logger   Logger
+	Deadline    time.Duration
+	Interceptor RoomInterceptor
+	Logger      Logger
 }
 
 type room struct {
@@ -37,6 +42,7 @@ type room struct {
 	option       RoomOption
 	manager      Manager
 	handler      RoomHandler
+	interceptor  RoomInterceptor
 	userMap      map[string]*roomUser
 	msgCh        chan internalMessage
 	shutdownCh   chan struct{}
@@ -64,6 +70,31 @@ func (AlreadyRoomClosedError) Error() string {
 	return "Already room was closed"
 }
 
+// JoinRoomError is occurred if user join is failed.
+type JoinRoomError int
+
+const (
+	// JoinRoomPendingError represents the join request is pending.
+	JoinRoomPendingError JoinRoomError = iota
+	// JoinRoomDenyError represents the user was denied.
+	JoinRoomDenyError
+	// JoinRoomConnClosedError represents the conn was already closed.
+	JoinRoomConnClosedError
+)
+
+func (e JoinRoomError) Error() string {
+	switch e {
+	case JoinRoomPendingError:
+		return "the join request is pending"
+	case JoinRoomDenyError:
+		return "the user was denied"
+	case JoinRoomConnClosedError:
+		return "the user's conn was already closed"
+	}
+
+	return "unknown error"
+}
+
 // AlreadyUserJoinedError is occurred if user was already exists in the room
 type AlreadyUserJoinedError struct {
 	User User
@@ -82,6 +113,7 @@ type roomUser struct {
 
 func (u roomUser) InRoomUser() InRoomUser {
 	return InRoomUser{
+		Ctx:   u.ctx,
 		Index: u.index,
 		User:  u.u,
 	}
@@ -140,6 +172,10 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 		option.Deadline = 10 * time.Second
 	}
 
+	if option.Interceptor == nil {
+		option.Interceptor = NilRoomInterceptor{}
+	}
+
 	if option.Logger == nil {
 		option.Logger = stdLogger{}
 	}
@@ -149,6 +185,7 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 		option:       option,
 		manager:      m,
 		handler:      rh,
+		interceptor:  option.Interceptor,
 		userMap:      map[string]*roomUser{},
 		msgCh:        make(chan internalMessage),
 		shutdownCh:   make(chan struct{}),
@@ -275,10 +312,15 @@ func (r *room) RoomInfo() (RoomInfo, error) {
 	}, nil
 }
 
+func (r *room) ExistsUser(id string) bool {
+	_, ok := r.userMap[id]
+	return ok
+}
+
 func (r *room) GetConn(id string) (Conn, error) {
 	u, ok := r.userMap[id]
 	if !ok {
-		return nil, UserNotFoundError{User: u.u}
+		return nil, UserNotFoundError{ID: id}
 	}
 
 	return u.conn, nil
@@ -294,12 +336,18 @@ func (e AlreadyInRoomError) Error() string {
 }
 
 func (r *room) Join(ctx context.Context, user User, conn Conn) error {
+	_, err := r.join(ctx, user, conn, true)
+	return err
+}
+
+func (r *room) JoinWithoutInterception(ctx context.Context, user User, conn Conn) error {
+	_, err := r.join(ctx, user, conn, false)
+	return err
+}
+
+func (r *room) join(ctx context.Context, user User, conn Conn, interception bool) (context.Context, error) {
 	if _, ok := r.userMap[user.ID]; ok {
-		conn.OnJoinFailed(AlreadyUserJoinedError{
-			User: user,
-		})
-		conn.Close()
-		return AlreadyInRoomError{User: user}
+		return nil, AlreadyInRoomError{User: user}
 	}
 
 	joinedUser := &roomUser{
@@ -311,23 +359,32 @@ func (r *room) Join(ctx context.Context, user User, conn Conn) error {
 
 	err := r.handler.ValidateJoinUser(joinedUser.ctx, r, joinedUser.u)
 	if err != nil {
-		joinedUser.conn.OnJoinFailed(err)
-		joinedUser.conn.Close()
-		return err
+		return nil, err
+	}
+
+	if interception {
+		result, pendingCtx := r.interceptor.InterceptJoin(joinedUser.ctx, r, joinedUser.u, joinedUser.conn)
+		switch result {
+		case JoinInterceptionPending:
+			return pendingCtx, JoinRoomError(JoinRoomPendingError)
+		case JoinInterceptionDeny:
+			return nil, JoinRoomError(JoinRoomDenyError)
+		default:
+		}
 	}
 
 	r.userMap[joinedUser.u.ID] = joinedUser
+	r.currentIndex++
 
 	// r.RoomInfo() success always.
 	roomInfo, _ := r.RoomInfo()
 	err = joinedUser.conn.OnJoin(roomInfo)
 
 	if err != nil {
-		delete(r.userMap, joinedUser.u.ID)
-		joinedUser.conn.Close()
-		return err
+		// already user is joined but disconnected. so room must send leave message for other users.
+		r.enqueueLeave(joinedUser.u.ID)
+		return nil, err
 	}
-	r.currentIndex++
 
 	// user join completed.
 
@@ -346,22 +403,22 @@ func (r *room) Join(ctx context.Context, user User, conn Conn) error {
 	// Notify joinUser after all message sent
 	r.handler.OnJoinUser(r, joinedRoomUser)
 
-	return nil
+	return nil, nil
 }
 
 // UserNotFoundError is occurred if user not found.
 type UserNotFoundError struct {
-	User User
+	ID string
 }
 
 func (e UserNotFoundError) Error() string {
-	return fmt.Sprintf("User not found: %v(%v)", e.User.Name, e.User.ID)
+	return fmt.Sprintf("User not found: %v", e.ID)
 }
 
 func (r *room) Leave(id string) error {
 	user, ok := r.userMap[id]
 	if !ok {
-		return UserNotFoundError{User: user.u}
+		return UserNotFoundError{ID: id}
 	}
 
 	delete(r.userMap, id)
@@ -380,12 +437,32 @@ func (r *room) Leave(id string) error {
 }
 
 func (r *room) Broadcast(id string, body interface{}) error {
+	return r.broadcast(id, body, true)
+}
+
+func (r *room) BroadcastWithoutInterception(id string, body interface{}) error {
+	return r.broadcast(id, body, false)
+}
+
+func (r *room) broadcast(id string, body interface{}, interception bool) error {
 	user, ok := r.userMap[id]
 	if !ok {
-		return UserNotFoundError{User: user.u}
+		return UserNotFoundError{ID: id}
 	}
 
 	inRoomUser := user.InRoomUser()
+	if interception {
+		result := r.interceptor.InterceptBroadcast(r, inRoomUser, body)
+		switch result {
+		case MessageInterceptionDeny:
+			return nil
+		case MessageInterceptionDisconnect:
+			r.Leave(id)
+			return nil
+		default:
+		}
+	}
+
 	for _, u := range r.userMap {
 		err := u.conn.OnBroadcast(inRoomUser, body)
 		if err != nil {
@@ -397,12 +474,33 @@ func (r *room) Broadcast(id string, body interface{}) error {
 }
 
 func (r *room) CustomMessage(id string, kind CustomMessageKind, body interface{}) error {
+	return r.customMessage(id, kind, body, true)
+}
+
+func (r *room) CustomMessageWithoutInterception(id string, kind CustomMessageKind, body interface{}) error {
+	return r.customMessage(id, kind, body, false)
+}
+
+func (r *room) customMessage(id string, kind CustomMessageKind, body interface{}, interception bool) error {
 	user, ok := r.userMap[id]
 	if !ok {
-		return UserNotFoundError{User: user.u}
+		return UserNotFoundError{ID: id}
 	}
 
-	r.handler.OnCustomMessage(r, user.InRoomUser(), kind, body)
+	inRoomUser := user.InRoomUser()
+	if interception {
+		result := r.interceptor.InterceptCustomMessage(r, inRoomUser, kind, body)
+		switch result {
+		case MessageInterceptionDeny:
+			return nil
+		case MessageInterceptionDisconnect:
+			r.Leave(id)
+			return nil
+		default:
+		}
+	}
+
+	r.handler.OnCustomMessage(r, inRoomUser, kind, body)
 	return nil
 }
 
@@ -493,6 +591,20 @@ func (r *goroutineSafeRoom) RoomInfo() (roomInfo RoomInfo, innerErr error) {
 	return
 }
 
+func (r *goroutineSafeRoom) ExistsUser(id string) bool {
+	var exists bool
+	op, err := r.Enqueue(func() {
+		exists = r.r.ExistsUser(id)
+	})
+
+	if err != nil {
+		return false
+	}
+
+	<-op.Done()
+	return exists
+}
+
 func (r *goroutineSafeRoom) GetConn(id string) (conn Conn, innerErr error) {
 	op, err := r.Enqueue(func() {
 		conn, innerErr = r.r.GetConn(id)
@@ -507,8 +619,17 @@ func (r *goroutineSafeRoom) GetConn(id string) (conn Conn, innerErr error) {
 }
 
 func (r *goroutineSafeRoom) Join(ctx context.Context, user User, conn Conn) (innerErr error) {
+	return r.join(ctx, user, conn, true)
+}
+
+func (r *goroutineSafeRoom) JoinWithoutInterception(ctx context.Context, user User, conn Conn) (innerErr error) {
+	return r.join(ctx, user, conn, false)
+}
+
+func (r *goroutineSafeRoom) join(ctx context.Context, user User, conn Conn, interception bool) (innerErr error) {
+	var pendingCtx context.Context
 	op, err := r.Enqueue(func() {
-		innerErr = r.r.Join(ctx, user, conn)
+		pendingCtx, innerErr = r.r.join(ctx, user, conn, interception)
 	})
 
 	if err != nil {
@@ -516,7 +637,29 @@ func (r *goroutineSafeRoom) Join(ctx context.Context, user User, conn Conn) (inn
 	}
 
 	<-op.Done()
-	return
+	jre, ok := innerErr.(JoinRoomError)
+	if !ok || jre != JoinRoomPendingError {
+		return innerErr
+	}
+
+	// join is pending.
+
+	resultCh := make(chan error)
+	go func() {
+		select {
+		case <-pendingCtx.Done():
+			if r.ExistsUser(user.ID) {
+				resultCh <- nil
+				return
+			}
+
+			resultCh <- JoinRoomDenyError
+		case <-ctx.Done():
+			resultCh <- JoinRoomDenyError
+		}
+	}()
+
+	return <-resultCh
 }
 
 func (r *goroutineSafeRoom) Leave(id string) (innerErr error) {
@@ -533,23 +676,41 @@ func (r *goroutineSafeRoom) Leave(id string) (innerErr error) {
 }
 
 func (r *goroutineSafeRoom) Broadcast(id string, body interface{}) error {
+	return r.broadcast(id, body, true)
+}
+
+func (r *goroutineSafeRoom) BroadcastWithoutInterception(id string, body interface{}) error {
+	return r.broadcast(id, body, false)
+}
+
+func (r *goroutineSafeRoom) broadcast(id string, body interface{}, interception bool) error {
 	msg := internalMessage{
 		kind: internalBroadcastMessage,
 		body: internalBroadcastMessageBody{
-			userID: id,
-			body:   body,
+			userID:       id,
+			body:         body,
+			interception: interception,
 		},
 	}
 	return r.r.safeSendMessage(msg)
 }
 
 func (r *goroutineSafeRoom) CustomMessage(id string, kind CustomMessageKind, body interface{}) error {
+	return r.customMessage(id, kind, body, true)
+}
+
+func (r *goroutineSafeRoom) CustomMessageWithoutInterception(id string, kind CustomMessageKind, body interface{}) error {
+	return r.customMessage(id, kind, body, false)
+}
+
+func (r *goroutineSafeRoom) customMessage(id string, kind CustomMessageKind, body interface{}, interception bool) error {
 	msg := internalMessage{
 		kind: internalCustomMessage,
 		body: internalCustomMessageBody{
-			userID: id,
-			kind:   kind,
-			body:   body,
+			userID:       id,
+			kind:         kind,
+			body:         body,
+			interception: interception,
 		},
 	}
 	return r.r.safeSendMessage(msg)

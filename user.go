@@ -1,5 +1,7 @@
 package hibari
 
+import "context"
+
 // User is user
 type User struct {
 	ID   string
@@ -8,6 +10,7 @@ type User struct {
 
 // InRoomUser is user in the room
 type InRoomUser struct {
+	Ctx   context.Context
 	Index int
 	User  User
 }

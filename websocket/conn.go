@@ -17,6 +17,8 @@ type ConnTransportOption struct {
 }
 
 type connTransport struct {
+	ctx    context.Context
+	cancel context.CancelFunc
 	ws     *ws.Conn
 	encDec hibari.AnyMessageEncoderDecoder
 }
@@ -179,6 +181,7 @@ func (c *connTransport) Ping() error {
 func (c *connTransport) Close() {
 	c.ws.WriteMessage(ws.CloseMessage, []byte{})
 	c.ws.Close()
+	c.cancel()
 }
 
 func (c *connTransport) encodeAnyMessageBody(body []byte) (interface{}, error) {
@@ -217,7 +220,10 @@ func ServeWs(m hibari.Manager, o ConnTransportOption, w http.ResponseWriter, r *
 		return
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	c := &connTransport{
+		ctx:    ctx,
+		cancel: cancel,
 		ws:     ws,
 		encDec: o.EncoderDecoder,
 	}

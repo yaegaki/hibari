@@ -20,12 +20,14 @@ type internalInvokeMessageBody struct {
 }
 
 type internalBroadcastMessageBody struct {
-	userID string
-	body   interface{}
+	userID       string
+	body         interface{}
+	interception bool
 }
 
 type internalCustomMessageBody struct {
-	userID string
-	kind   CustomMessageKind
-	body   interface{}
+	userID       string
+	kind         CustomMessageKind
+	body         interface{}
+	interception bool
 }

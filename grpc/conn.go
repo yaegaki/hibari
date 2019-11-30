@@ -19,7 +19,8 @@ type ConnTransportOption struct {
 }
 
 type connTransport struct {
-	closeCh   chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
 	stream    pb.Hibari_ConnServer
 	closeOnce *sync.Once
 	encDec    hibari.AnyMessageEncoderDecoder
@@ -166,7 +167,7 @@ func (*connTransport) Ping() error {
 
 func (c *connTransport) Close() {
 	c.closeOnce.Do(func() {
-		close(c.closeCh)
+		c.cancel()
 	})
 }
 

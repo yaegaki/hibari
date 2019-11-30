@@ -10,7 +10,6 @@ import (
 // Conn represents connection between server and client
 type Conn interface {
 	OnAuthenticationFailed()
-	OnJoinFailed(error)
 
 	OnJoin(r RoomInfo) error
 	OnOtherUserJoin(u InRoomUser) error
@@ -110,6 +109,7 @@ func (c *conn) readPump() {
 	err = room.Join(ctx, user, c)
 	if err != nil {
 		log.Printf("Join failed: %v(%v)", user.Name, user.ID)
+		c.safeSendMessage(Message{Kind: OnJoinFailedMessage})
 		return
 	}
 
@@ -178,10 +178,6 @@ func (c *conn) writePump() {
 
 func (c *conn) OnAuthenticationFailed() {
 	c.safeSendMessage(Message{Kind: OnAuthenticationFailedMessage})
-}
-
-func (c *conn) OnJoinFailed(error) {
-	c.safeSendMessage(Message{Kind: OnJoinFailedMessage})
 }
 
 func (c *conn) OnJoin(r RoomInfo) error {
