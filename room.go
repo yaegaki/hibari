@@ -14,11 +14,35 @@ type Room interface {
 	Shutdown() AsyncOperation
 	Enqueue(f func()) (AsyncOperation, error)
 
-	// ForGoroutine creates goroutine safe a room.
-	ForGoroutine() Room
+	// ForGoroutine creates goroutine safe room.
+	ForGoroutine() GoroutineSafeRoom
 
 	ID() string
-	RoomInfo() (RoomInfo, error)
+	RoomInfo() RoomInfo
+	ExistsUser(id string) bool
+	GetConn(id string) (Conn, error)
+	Join(ctx context.Context, user User, conn Conn) error
+	JoinWithoutInterception(ctx context.Context, user User, conn Conn) error
+	Leave(id string) error
+	Broadcast(id string, body interface{}) error
+	BroadcastWithoutInterception(id string, body interface{}) error
+	CustomMessage(id string, kind CustomMessageKind, body interface{}) error
+	CustomMessageWithoutInterception(id string, kind CustomMessageKind, body interface{}) error
+	Closed() bool
+}
+
+// GoroutineSafeRoom is goroutine safe version room.
+type GoroutineSafeRoom interface {
+	Run()
+	Shutdown() AsyncOperation
+	Enqueue(f func()) (AsyncOperation, error)
+
+	// ForGoroutine creates goroutine safe room.
+	ForGoroutine() GoroutineSafeRoom
+
+	ID() string
+	RoomInfo() RoomInfo
+	SafeRoomInfo() (RoomInfo, error)
 	ExistsUser(id string) bool
 	GetConn(id string) (Conn, error)
 	Join(ctx context.Context, user User, conn Conn) error
@@ -271,7 +295,7 @@ func (r *room) Enqueue(f func()) (AsyncOperation, error) {
 	return NewAsyncOperation(finishCh), nil
 }
 
-func (r *room) ForGoroutine() Room {
+func (r *room) ForGoroutine() GoroutineSafeRoom {
 	return &goroutineSafeRoom{
 		r: r,
 	}
@@ -281,7 +305,7 @@ func (r *room) ID() string {
 	return r.id
 }
 
-func (r *room) RoomInfo() (RoomInfo, error) {
+func (r *room) RoomInfo() RoomInfo {
 	userMap := map[string]InRoomUser{}
 	for id, u := range r.userMap {
 		userMap[id] = u.InRoomUser()
@@ -290,7 +314,7 @@ func (r *room) RoomInfo() (RoomInfo, error) {
 	return RoomInfo{
 		ID:      r.id,
 		UserMap: userMap,
-	}, nil
+	}
 }
 
 func (r *room) ExistsUser(id string) bool {
@@ -357,8 +381,7 @@ func (r *room) join(ctx context.Context, user User, conn Conn, interception bool
 	r.userMap[joinedUser.u.ID] = joinedUser
 	r.currentIndex++
 
-	// r.RoomInfo() success always.
-	roomInfo, _ := r.RoomInfo()
+	roomInfo := r.RoomInfo()
 	err = joinedUser.conn.OnJoin(roomInfo)
 
 	if err != nil {
@@ -550,22 +573,34 @@ func (r *goroutineSafeRoom) Enqueue(f func()) (AsyncOperation, error) {
 	return NewAsyncOperation(finishCh), nil
 }
 
-// ForGoroutine creates goroutine safe room.
-func (r *goroutineSafeRoom) ForGoroutine() Room {
-	return r
-}
-
 func (r *goroutineSafeRoom) ID() string {
 	return r.r.ID()
 }
 
-func (r *goroutineSafeRoom) RoomInfo() (roomInfo RoomInfo, innerErr error) {
+func (r *goroutineSafeRoom) ForGoroutine() GoroutineSafeRoom {
+	return r
+}
+
+func (r *goroutineSafeRoom) RoomInfo() (roomInfo RoomInfo) {
 	op, err := r.Enqueue(func() {
-		roomInfo, innerErr = r.r.RoomInfo()
+		roomInfo = r.r.RoomInfo()
 	})
 
 	if err != nil {
-		return RoomInfo{}, err
+		return RoomInfo{}
+	}
+
+	<-op.Done()
+	return
+}
+
+func (r *goroutineSafeRoom) SafeRoomInfo() (roomInfo RoomInfo, err error) {
+	op, err := r.Enqueue(func() {
+		roomInfo = r.r.RoomInfo()
+	})
+
+	if err != nil {
+		return
 	}
 
 	<-op.Done()

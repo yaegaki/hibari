@@ -35,7 +35,7 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, u hibari.InRoomUser) {
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, u hibari.InRoomUser) {
 	log.Printf("leave user: %v(%v)", u.User.Name, u.User.ID)
-	roomInfo, _ := r.RoomInfo()
+	roomInfo := r.RoomInfo()
 	if len(roomInfo.UserMap) > 0 {
 		return
 	}

@@ -6,8 +6,8 @@ import (
 	"sync"
 )
 
-// RoomMap is map of room
-type RoomMap map[string]Room
+// RoomMap is map of rooms.
+type RoomMap map[string]GoroutineSafeRoom
 
 // Manager management rooms
 type Manager interface {
@@ -15,8 +15,8 @@ type Manager interface {
 	RoomInfoAll() <-chan RoomInfo
 	Authenticate(ctx context.Context, id, secret string) (User, error)
 	Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error)
-	GetRoom(id string) (Room, bool)
-	GetOrCreateRoom(ctx context.Context, id string) (Room, error)
+	GetRoom(id string) (GoroutineSafeRoom, bool)
+	GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafeRoom, error)
 	NotifyRoomClosed(id string)
 	Shutdown()
 }
@@ -62,7 +62,7 @@ func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
 func (m *manager) RoomMap() RoomMap {
 	roomMap := RoomMap{}
 
-	m.roomMap.Range(func(id string, r Room) bool {
+	m.roomMap.Range(func(id string, r GoroutineSafeRoom) bool {
 		roomMap[id] = r
 		return true
 	})
@@ -74,12 +74,12 @@ func (m *manager) RoomInfoAll() <-chan RoomInfo {
 	resultCh := make(chan RoomInfo)
 
 	wg := &sync.WaitGroup{}
-	m.roomMap.Range(func(id string, r Room) bool {
+	m.roomMap.Range(func(id string, r GoroutineSafeRoom) bool {
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
-			roomInfo, err := r.RoomInfo()
+			roomInfo, err := r.SafeRoomInfo()
 			if err != nil {
 				return
 			}
@@ -113,11 +113,11 @@ func (m *manager) Negotiate(ctx context.Context, trans ConnTransport) (context.C
 	return m.option.Negotiator.Negotiate(ctx, trans)
 }
 
-func (m *manager) GetRoom(id string) (Room, bool) {
+func (m *manager) GetRoom(id string) (GoroutineSafeRoom, bool) {
 	return m.roomMap.Load(id)
 }
 
-func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) {
+func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafeRoom, error) {
 	if id != "" {
 		r, ok := m.roomMap.Load(id)
 
@@ -138,15 +138,13 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) 
 		return nil, errors.New("invalid RoomID")
 	}
 
-	newRoom, loaded := m.roomMap.LoadOrStore(id, newRoom)
+	gsRoom, loaded := m.roomMap.LoadOrStore(id, newRoom.ForGoroutine())
 
-	if loaded {
-		return newRoom, nil
+	if !loaded {
+		go newRoom.Run()
 	}
 
-	go newRoom.Run()
-
-	return newRoom, nil
+	return gsRoom, nil
 }
 
 func (m *manager) NotifyRoomClosed(id string) {
@@ -171,7 +169,7 @@ func (m *manager) Shutdown() {
 	m.mu.Unlock()
 
 	wg := sync.WaitGroup{}
-	rm.Range(func(id string, r Room) bool {
+	rm.Range(func(id string, r GoroutineSafeRoom) bool {
 		wg.Add(1)
 		ch := r.Shutdown().Done()
 		go func() {
@@ -184,26 +182,26 @@ func (m *manager) Shutdown() {
 	wg.Wait()
 }
 
-func (m *roomMap) Load(id string) (Room, bool) {
+func (m *roomMap) Load(id string) (GoroutineSafeRoom, bool) {
 	r, ok := m.m.Load(id)
 	if !ok {
 		return nil, false
 	}
 
-	room, _ := r.(Room)
+	room, _ := r.(GoroutineSafeRoom)
 	return room, true
 }
 
-func (m *roomMap) LoadOrStore(id string, room Room) (Room, bool) {
+func (m *roomMap) LoadOrStore(id string, room GoroutineSafeRoom) (GoroutineSafeRoom, bool) {
 	r, loaded := m.m.LoadOrStore(id, room)
-	room, _ = r.(Room)
+	room, _ = r.(GoroutineSafeRoom)
 	return room, loaded
 }
 
-func (m *roomMap) Range(f func(id string, room Room) bool) {
+func (m *roomMap) Range(f func(id string, room GoroutineSafeRoom) bool) {
 	m.m.Range(func(key, value interface{}) bool {
 		id, _ := key.(string)
-		room, _ := value.(Room)
+		room, _ := value.(GoroutineSafeRoom)
 		return f(id, room)
 	})
 }

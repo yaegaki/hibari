@@ -71,7 +71,7 @@ type roomHandler struct {
 }
 
 func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, u hibari.User) error {
-	roomInfo, _ := r.RoomInfo()
+	roomInfo := r.RoomInfo()
 
 	if len(roomInfo.UserMap) >= rh.rule.maxUser {
 		return fmt.Errorf("No vacancy")
@@ -92,7 +92,7 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 }
 
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
-	roomInfo, _ := r.RoomInfo()
+	roomInfo := r.RoomInfo()
 	if len(roomInfo.UserMap) == 0 {
 		r.Shutdown()
 	}
@@ -232,7 +232,7 @@ func main() {
 	userCtxA := context.WithValue(none, customValueKey, "helloA")
 	userCtxB := context.WithValue(none, customValueKey, "helloB")
 
-	joinRoom := func(ctx context.Context, r hibari.Room, roomName string, id, secret string) {
+	joinRoom := func(ctx context.Context, r hibari.GoroutineSafeRoom, roomName string, id, secret string) {
 		user, err := manager.Authenticate(ctx, id, secret)
 		if err != nil {
 			log.Printf("room: %v authentication failed: %v", roomName, id)
