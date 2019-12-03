@@ -2,7 +2,7 @@ package hibari
 
 import "context"
 
-// Authenticator authenticate user
+// Authenticator authenticates a user.
 type Authenticator interface {
 	Authenticate(ctx context.Context, id, secret string) (User, error)
 }

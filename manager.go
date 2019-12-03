@@ -2,7 +2,7 @@ package hibari
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 )
 
@@ -135,7 +135,7 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (Room, error) 
 	id = newRoom.ID()
 
 	if id == "" {
-		return nil, fmt.Errorf("Invalid RoomID")
+		return nil, errors.New("invalid RoomID")
 	}
 
 	newRoom, loaded := m.roomMap.LoadOrStore(id, newRoom)

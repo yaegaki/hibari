@@ -2,6 +2,7 @@ package hibari
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -63,45 +64,25 @@ type RoomInfo struct {
 	UserMap map[string]InRoomUser
 }
 
-// AlreadyRoomClosedError is occurred if room was already closed
-type AlreadyRoomClosedError struct{}
+// ErrAlreadyRoomClosed is returned when access to the room when that was already closed.
+var ErrAlreadyRoomClosed = errors.New("already room was closed")
 
-func (AlreadyRoomClosedError) Error() string {
-	return "Already room was closed"
-}
+// ErrJoinRoomPending is returned when the join request is pending.
+var ErrJoinRoomPending = errors.New("the join request is pending")
 
-// JoinRoomError is occurred if user join is failed.
-type JoinRoomError int
+// ErrJoinRoomDenied is returend when the join request was denied.
+var ErrJoinRoomDenied = errors.New("the join request was denied")
 
-const (
-	// JoinRoomPendingError represents the join request is pending.
-	JoinRoomPendingError JoinRoomError = iota
-	// JoinRoomDenyError represents the user was denied.
-	JoinRoomDenyError
-	// JoinRoomConnClosedError represents the conn was already closed.
-	JoinRoomConnClosedError
-)
+// ErrJoinRoomConnClosed is returned when the user's conn was already closed.
+var ErrJoinRoomConnClosed = errors.New("the join request was denied")
 
-func (e JoinRoomError) Error() string {
-	switch e {
-	case JoinRoomPendingError:
-		return "the join request is pending"
-	case JoinRoomDenyError:
-		return "the user was denied"
-	case JoinRoomConnClosedError:
-		return "the user's conn was already closed"
-	}
-
-	return "unknown error"
-}
-
-// AlreadyUserJoinedError is occurred if user was already exists in the room
+// AlreadyUserJoinedError represents a user is already joined room.
 type AlreadyUserJoinedError struct {
 	User User
 }
 
 func (e AlreadyUserJoinedError) Error() string {
-	return fmt.Sprintf("Already user was joined: ID(%v) Name(%v)", e.User.ID, e.User.Name)
+	return fmt.Sprintf("the user was already joined: ID(%v) Name(%v)", e.User.ID, e.User.Name)
 }
 
 type roomUser struct {
@@ -366,9 +347,9 @@ func (r *room) join(ctx context.Context, user User, conn Conn, interception bool
 		result, pendingCtx := r.interceptor.InterceptJoin(joinedUser.ctx, r, joinedUser.u, joinedUser.conn)
 		switch result {
 		case JoinInterceptionPending:
-			return pendingCtx, JoinRoomError(JoinRoomPendingError)
+			return pendingCtx, ErrJoinRoomPending
 		case JoinInterceptionDeny:
-			return nil, JoinRoomError(JoinRoomDenyError)
+			return nil, ErrJoinRoomDenied
 		default:
 		}
 	}
@@ -412,7 +393,7 @@ type UserNotFoundError struct {
 }
 
 func (e UserNotFoundError) Error() string {
-	return fmt.Sprintf("User not found: %v", e.ID)
+	return fmt.Sprintf("user not found: %v", e.ID)
 }
 
 func (r *room) Leave(id string) error {
@@ -511,7 +492,7 @@ func (r *room) Closed() bool {
 func (r *room) safeSendMessage(msg internalMessage) error {
 	select {
 	case <-r.shutdownCh:
-		return AlreadyRoomClosedError{}
+		return ErrAlreadyRoomClosed
 	case r.msgCh <- msg:
 		return nil
 	}
@@ -637,12 +618,11 @@ func (r *goroutineSafeRoom) join(ctx context.Context, user User, conn Conn, inte
 	}
 
 	<-op.Done()
-	jre, ok := innerErr.(JoinRoomError)
-	if !ok || jre != JoinRoomPendingError {
+	if innerErr != ErrJoinRoomPending {
 		return innerErr
 	}
 
-	// join is pending.
+	// join requesit is pending.
 
 	resultCh := make(chan error)
 	go func() {
@@ -653,9 +633,9 @@ func (r *goroutineSafeRoom) join(ctx context.Context, user User, conn Conn, inte
 				return
 			}
 
-			resultCh <- JoinRoomDenyError
+			resultCh <- ErrJoinRoomDenied
 		case <-ctx.Done():
-			resultCh <- JoinRoomDenyError
+			resultCh <- ErrJoinRoomDenied
 		}
 	}()
 

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Conn represents connection between server and client
+// Conn represents connection between the server and client
 type Conn interface {
 	OnAuthenticationFailed()
 
@@ -183,7 +183,7 @@ func (c *conn) OnAuthenticationFailed() {
 func (c *conn) OnJoin(r RoomInfo) error {
 	select {
 	case <-c.closeCh:
-		return SendMessageError("Already conn is closed")
+		return SendMessageError("already conn was closed")
 	default:
 	}
 
@@ -224,11 +224,11 @@ func (c *conn) safeSendMessageWithBody(body interface{}) error {
 func (c *conn) safeSendMessage(msg Message) error {
 	select {
 	case <-c.closeCh:
-		return SendMessageError("Send message failed")
+		return SendMessageError("send message failed")
 	case c.sendCh <- msg:
 		return nil
 	default:
-		return SendMessageError("Connection is stucked")
+		return SendMessageError("connection was stucked")
 	}
 }
 
