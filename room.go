@@ -18,6 +18,7 @@ type Room interface {
 	ForGoroutine() GoroutineSafeRoom
 
 	ID() string
+	UserCount() int
 	RoomInfo() RoomInfo
 	ExistsUser(id string) bool
 	GetConn(id string) (Conn, error)
@@ -41,6 +42,8 @@ type GoroutineSafeRoom interface {
 	ForGoroutine() GoroutineSafeRoom
 
 	ID() string
+	UserCount() int
+	SafeUserCount() (int, error)
 	RoomInfo() RoomInfo
 	SafeRoomInfo() (RoomInfo, error)
 	ExistsUser(id string) bool
@@ -303,6 +306,10 @@ func (r *room) ForGoroutine() GoroutineSafeRoom {
 
 func (r *room) ID() string {
 	return r.id
+}
+
+func (r *room) UserCount() int {
+	return len(r.userMap)
 }
 
 func (r *room) RoomInfo() RoomInfo {
@@ -581,17 +588,27 @@ func (r *goroutineSafeRoom) ForGoroutine() GoroutineSafeRoom {
 	return r
 }
 
-func (r *goroutineSafeRoom) RoomInfo() (roomInfo RoomInfo) {
+func (r *goroutineSafeRoom) UserCount() int {
+	userCount, _ := r.SafeUserCount()
+	return userCount
+}
+
+func (r *goroutineSafeRoom) SafeUserCount() (userCount int, err error) {
 	op, err := r.Enqueue(func() {
-		roomInfo = r.r.RoomInfo()
+		userCount = r.r.UserCount()
 	})
 
 	if err != nil {
-		return RoomInfo{}
+		return 0, err
 	}
 
 	<-op.Done()
 	return
+}
+
+func (r *goroutineSafeRoom) RoomInfo() RoomInfo {
+	roomInfo, _ := r.SafeRoomInfo()
+	return roomInfo
 }
 
 func (r *goroutineSafeRoom) SafeRoomInfo() (roomInfo RoomInfo, err error) {
@@ -600,7 +617,7 @@ func (r *goroutineSafeRoom) SafeRoomInfo() (roomInfo RoomInfo, err error) {
 	})
 
 	if err != nil {
-		return
+		return RoomInfo{}, err
 	}
 
 	<-op.Done()
