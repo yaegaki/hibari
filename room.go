@@ -58,11 +58,13 @@ type GoroutineSafeRoom interface {
 	Closed() bool
 }
 
-// RoomOption configures room
+// RoomOption configures the room.
 type RoomOption struct {
-	Deadline    time.Duration
-	Interceptor RoomInterceptor
-	Logger      Logger
+	Deadline time.Duration
+	// KickFirstComesUser means kicks first user if same user id's user joins the room.
+	KickFirstComesUser bool
+	Interceptor        RoomInterceptor
+	Logger             Logger
 }
 
 type room struct {
@@ -359,7 +361,11 @@ func (r *room) JoinWithoutInterception(ctx context.Context, user User, conn Conn
 
 func (r *room) join(ctx context.Context, user User, conn Conn, interception bool) (context.Context, error) {
 	if _, ok := r.userMap[user.ID]; ok {
-		return nil, AlreadyInRoomError{User: user}
+		if !r.option.KickFirstComesUser {
+			return nil, AlreadyInRoomError{User: user}
+		}
+
+		r.Leave(user.ID)
 	}
 
 	joinedUser := &roomUser{
