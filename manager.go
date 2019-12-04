@@ -21,9 +21,15 @@ type Manager interface {
 	Shutdown()
 }
 
+// ErrManagerAlreadyShutdown is returned when access to the manager when that had already shutdown.
+var ErrManagerAlreadyShutdown = errors.New("the manger had already shutdown")
+
 type manager struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
 	option     ManagerOption
-	mu         *sync.Mutex
+	wg         *sync.WaitGroup
+	closeOnce  *sync.Once
 	allocator  RoomAllocator
 	roomMap    roomMap
 	shutdownCh chan struct{}
@@ -49,9 +55,14 @@ func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
 		option = &ManagerOption{}
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	m := &manager{
+		ctx:       ctx,
+		cancel:    cancel,
 		option:    *option,
-		mu:        &sync.Mutex{},
+		wg:        &sync.WaitGroup{},
+		closeOnce: &sync.Once{},
 		allocator: ra,
 		roomMap:   roomMap{m: &sync.Map{}},
 	}
@@ -118,6 +129,15 @@ func (m *manager) GetRoom(id string) (GoroutineSafeRoom, bool) {
 }
 
 func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafeRoom, error) {
+	m.wg.Add(1)
+	defer m.wg.Done()
+
+	select {
+	case <-m.ctx.Done():
+		return nil, ErrManagerAlreadyShutdown
+	default:
+	}
+
 	if id != "" {
 		r, ok := m.roomMap.Load(id)
 
@@ -163,13 +183,13 @@ func (m *manager) NotifyRoomClosed(id string) {
 }
 
 func (m *manager) Shutdown() {
-	m.mu.Lock()
-	rm := m.roomMap
-	m.roomMap = roomMap{m: &sync.Map{}}
-	m.mu.Unlock()
+	m.closeOnce.Do(func() {
+		m.cancel()
+		// wait finish GetOrCreateRoom methods that has invoked by another goroutine.
+		m.wg.Wait()
 
 	wg := sync.WaitGroup{}
-	rm.Range(func(id string, r GoroutineSafeRoom) bool {
+		m.roomMap.Range(func(id string, r GoroutineSafeRoom) bool {
 		wg.Add(1)
 		ch := r.Close().Done()
 		go func() {
@@ -180,6 +200,7 @@ func (m *manager) Shutdown() {
 	})
 
 	wg.Wait()
+	})
 }
 
 func (m *roomMap) Load(id string) (GoroutineSafeRoom, bool) {
