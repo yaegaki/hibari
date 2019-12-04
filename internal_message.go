@@ -12,7 +12,7 @@ const (
 	internalCustomMessage
 
 	internalInvokeMessage
-	internalShutdownMessage
+	internalCloseMessage
 )
 
 type internalInvokeMessageBody struct {

@@ -11,7 +11,7 @@ import (
 // Room .
 type Room interface {
 	Run()
-	Shutdown() AsyncOperation
+	Close() AsyncOperation
 	Enqueue(f func()) (AsyncOperation, error)
 
 	// ForGoroutine creates goroutine safe room.
@@ -35,7 +35,7 @@ type Room interface {
 // GoroutineSafeRoom is goroutine safe version room.
 type GoroutineSafeRoom interface {
 	Run()
-	Shutdown() AsyncOperation
+	Close() AsyncOperation
 	Enqueue(f func()) (AsyncOperation, error)
 
 	// ForGoroutine creates goroutine safe room.
@@ -75,12 +75,12 @@ type room struct {
 	interceptor  RoomInterceptor
 	userMap      map[string]*roomUser
 	msgCh        chan internalMessage
-	shutdownCh   chan struct{}
+	closeCh      chan struct{}
 	currentIndex int
 	logger       Logger
 	closed       bool
 	runOnce      *sync.Once
-	shutdownOnce *sync.Once
+	closeOnce    *sync.Once
 }
 
 type goroutineSafeRoom struct {
@@ -93,8 +93,8 @@ type RoomInfo struct {
 	UserMap map[string]InRoomUser
 }
 
-// ErrAlreadyRoomClosed is returned when access to the room when that was already closed.
-var ErrAlreadyRoomClosed = errors.New("already room was closed")
+// ErrRoomAlreadyClosed is returned when access to the room when that had already closed.
+var ErrRoomAlreadyClosed = errors.New("the room had already closed")
 
 // ErrJoinRoomPending is returned when the join request is pending.
 var ErrJoinRoomPending = errors.New("the join request is pending")
@@ -151,7 +151,7 @@ type RoomHandler interface {
 	OnJoinUser(r Room, user InRoomUser)
 	OnDisconnectUser(r Room, user InRoomUser)
 	OnCustomMessage(r Room, user InRoomUser, kind CustomMessageKind, body interface{})
-	OnShutdown()
+	OnClose()
 }
 
 type internalRoomHandler struct{}
@@ -169,7 +169,7 @@ func (internalRoomHandler) OnDisconnectUser(Room, InRoomUser) {
 func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, CustomMessageKind, interface{}) {
 }
 
-func (internalRoomHandler) OnShutdown() {
+func (internalRoomHandler) OnClose() {
 }
 
 // NewRoom creates a new Room
@@ -191,17 +191,17 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 	}
 
 	r := &room{
-		id:           roomID,
-		option:       option,
-		manager:      m,
-		handler:      rh,
-		interceptor:  option.Interceptor,
-		userMap:      map[string]*roomUser{},
-		msgCh:        make(chan internalMessage),
-		shutdownCh:   make(chan struct{}),
-		logger:       option.Logger,
-		runOnce:      &sync.Once{},
-		shutdownOnce: &sync.Once{},
+		id:          roomID,
+		option:      option,
+		manager:     m,
+		handler:     rh,
+		interceptor: option.Interceptor,
+		userMap:     map[string]*roomUser{},
+		msgCh:       make(chan internalMessage),
+		closeCh:     make(chan struct{}),
+		logger:      option.Logger,
+		runOnce:     &sync.Once{},
+		closeOnce:   &sync.Once{},
 	}
 
 	return r.ForGoroutine()
@@ -217,8 +217,8 @@ func (r *room) Run() {
 			select {
 			case msg := <-r.msgCh:
 				// r.logger.Printf("%v", msg)
-				if msg.kind == internalShutdownMessage {
-					r.handler.OnShutdown()
+				if msg.kind == internalCloseMessage {
+					r.handler.OnClose()
 					break
 				}
 
@@ -233,24 +233,24 @@ func (r *room) Run() {
 				d := time.Now().Sub(updatedTime)
 				if d >= r.option.Deadline {
 					t.Stop()
-					r.Shutdown()
+					r.Close()
 				}
 			}
 		}
 	})
 }
 
-func (r *room) Shutdown() AsyncOperation {
+func (r *room) Close() AsyncOperation {
 	finishCh := make(chan struct{})
 
 	go func() {
 		defer close(finishCh)
 
-		r.shutdownOnce.Do(func() {
-			close(r.shutdownCh)
+		r.closeOnce.Do(func() {
+			close(r.closeCh)
 
 			msg := internalMessage{
-				kind: internalShutdownMessage,
+				kind: internalCloseMessage,
 			}
 			r.msgCh <- msg
 
@@ -527,8 +527,8 @@ func (r *room) Closed() bool {
 
 func (r *room) safeSendMessage(msg internalMessage) error {
 	select {
-	case <-r.shutdownCh:
-		return ErrAlreadyRoomClosed
+	case <-r.closeCh:
+		return ErrRoomAlreadyClosed
 	case r.msgCh <- msg:
 		return nil
 	}
@@ -571,8 +571,8 @@ func (r *goroutineSafeRoom) Run() {
 	r.r.Run()
 }
 
-func (r *goroutineSafeRoom) Shutdown() AsyncOperation {
-	return r.r.Shutdown()
+func (r *goroutineSafeRoom) Close() AsyncOperation {
+	return r.r.Close()
 }
 
 func (r *goroutineSafeRoom) Enqueue(f func()) (AsyncOperation, error) {

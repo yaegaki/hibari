@@ -171,7 +171,7 @@ func (m *manager) Shutdown() {
 	wg := sync.WaitGroup{}
 	rm.Range(func(id string, r GoroutineSafeRoom) bool {
 		wg.Add(1)
-		ch := r.Shutdown().Done()
+		ch := r.Close().Done()
 		go func() {
 			<-ch
 			wg.Done()

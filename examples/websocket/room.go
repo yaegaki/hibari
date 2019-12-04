@@ -57,7 +57,7 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 		return
 	}
 
-	r.Shutdown()
+	r.Close()
 }
 
 func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
@@ -70,8 +70,8 @@ func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, ki
 	}
 }
 
-func (rh *roomHandler) OnShutdown() {
-	log.Printf("Shutdown room %v", rh.id)
+func (rh *roomHandler) OnClose() {
+	log.Printf("Close room %v", rh.id)
 }
 
 func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUser) {

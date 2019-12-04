@@ -94,15 +94,15 @@ func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 	roomInfo := r.RoomInfo()
 	if len(roomInfo.UserMap) == 0 {
-		r.Shutdown()
+		r.Close()
 	}
 }
 
 func (rh *roomHandler) OnCustomMessage(r hibari.Room, _ hibari.InRoomUser, _ hibari.CustomMessageKind, _ interface{}) {
 }
 
-func (rh *roomHandler) OnShutdown() {
-	log.Printf("Shutdown room: %v", rh.id)
+func (rh *roomHandler) OnClose() {
+	log.Printf("Close room: %v", rh.id)
 }
 
 type conn struct {
