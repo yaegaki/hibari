@@ -161,7 +161,7 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafe
 	gsRoom, loaded := m.roomMap.LoadOrStore(id, newRoom.ForGoroutine())
 
 	if !loaded {
-		go newRoom.Run()
+		go gsRoom.Run()
 	}
 
 	return gsRoom, nil
@@ -188,18 +188,18 @@ func (m *manager) Shutdown() {
 		// wait finish GetOrCreateRoom methods that has invoked by another goroutine.
 		m.wg.Wait()
 
-	wg := sync.WaitGroup{}
+		wg := sync.WaitGroup{}
 		m.roomMap.Range(func(id string, r GoroutineSafeRoom) bool {
-		wg.Add(1)
-		ch := r.Close().Done()
-		go func() {
-			<-ch
-			wg.Done()
-		}()
-		return true
-	})
+			wg.Add(1)
+			ch := r.Close().Done()
+			go func() {
+				<-ch
+				wg.Done()
+			}()
+			return true
+		})
 
-	wg.Wait()
+		wg.Wait()
 	})
 }
 
