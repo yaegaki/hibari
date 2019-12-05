@@ -25,14 +25,13 @@ type Manager interface {
 var ErrManagerAlreadyShutdown = errors.New("the manger had already shutdown")
 
 type manager struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	option     ManagerOption
-	wg         *sync.WaitGroup
-	closeOnce  *sync.Once
-	suggester  RoomSuggester
-	roomMap    roomMap
-	shutdownCh chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
+	option    ManagerOption
+	wg        *sync.WaitGroup
+	closeOnce *sync.Once
+	suggester RoomSuggester
+	roomMap   roomMap
 }
 
 type roomMap struct {
@@ -199,9 +198,9 @@ func (m *manager) Shutdown() {
 		wg := sync.WaitGroup{}
 		m.roomMap.Range(func(id string, r GoroutineSafeRoom) bool {
 			wg.Add(1)
-			ch := r.Close().Done()
+			r.Close()
 			go func() {
-				<-ch
+				<-r.Context().Done()
 				wg.Done()
 			}()
 			return true
