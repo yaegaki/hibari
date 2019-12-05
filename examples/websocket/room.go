@@ -11,12 +11,11 @@ import (
 	"github.com/yaegaki/hibari"
 )
 
-type roomAllocator struct {
+type roomSuggester struct {
 	rule roomRule
 }
 
 type roomHandler struct {
-	id   string
 	rule roomRule
 }
 
@@ -24,18 +23,21 @@ type roomRule struct {
 	maxUser int
 }
 
-func (ra *roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
+func (rs *roomSuggester) Suggest(req hibari.CreateRoomRequest, m hibari.Manager) (hibari.RoomSuggestion, error) {
 	rh := &roomHandler{
-		id:   id,
-		rule: ra.rule,
+		rule: rs.rule,
 	}
 
-	return hibari.NewRoom(id, m, rh, hibari.RoomOption{
-		Deadline: 5 * time.Second,
-	}), nil
+	return hibari.RoomSuggestion{
+		ID:          req.ID,
+		RoomHandler: rh,
+		Option: hibari.RoomOption{
+			Deadline: 5 * time.Second,
+		},
+	}, nil
 }
 
-func (*roomAllocator) Free(string) {
+func (rh *roomHandler) OnCreate(hibari.Room) {
 }
 
 func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
@@ -70,8 +72,8 @@ func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, ki
 	}
 }
 
-func (rh *roomHandler) OnClose() {
-	log.Printf("Close room %v", rh.id)
+func (rh *roomHandler) OnClose(r hibari.Room) {
+	log.Printf("Close room %v", r.ID())
 }
 
 func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUser) {

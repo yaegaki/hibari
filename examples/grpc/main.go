@@ -85,7 +85,7 @@ func main() {
 		panic(err)
 	}
 
-	manager := hibari.NewManager(roomAllocator{}, &hibari.ManagerOption{
+	manager := hibari.NewManager(roomSuggester{}, &hibari.ManagerOption{
 		Authenticator: authenticator{
 			mu: &sync.Mutex{},
 		},

@@ -19,7 +19,7 @@ type rule struct {
 	maxUser int
 }
 
-type roomAllocator struct {
+type roomSuggester struct {
 	userMap map[string]user
 	rule    rule
 }
@@ -30,19 +30,17 @@ const (
 	customValueKey key = iota
 )
 
-func (ra roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
-	rh := &roomHandler{
-		id:   id,
-		rule: ra.rule,
-	}
-
-	return hibari.NewRoom(id, m, rh, hibari.RoomOption{
-		Deadline:    1 * time.Second,
-		Interceptor: interceptor{},
-	}), nil
-}
-
-func (roomAllocator) Free(string) {
+func (rs roomSuggester) Suggest(req hibari.CreateRoomRequest, m hibari.Manager) (hibari.RoomSuggestion, error) {
+	return hibari.RoomSuggestion{
+		ID: req.ID,
+		RoomHandler: &roomHandler{
+			rule: rs.rule,
+		},
+		Option: hibari.RoomOption{
+			Deadline:    1 * time.Second,
+			Interceptor: interceptor{},
+		},
+	}, nil
 }
 
 type authenticator struct {
@@ -66,8 +64,10 @@ func (a authenticator) Authenticate(_ context.Context, id, secret string) (hibar
 }
 
 type roomHandler struct {
-	id   string
 	rule rule
+}
+
+func (rh *roomHandler) OnCreate(hibari.Room) {
 }
 
 func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, u hibari.User) error {
@@ -101,8 +101,8 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 func (rh *roomHandler) OnCustomMessage(r hibari.Room, _ hibari.InRoomUser, _ hibari.CustomMessageKind, _ interface{}) {
 }
 
-func (rh *roomHandler) OnClose() {
-	log.Printf("Close room: %v", rh.id)
+func (rh *roomHandler) OnClose(r hibari.Room) {
+	log.Printf("Close room: %v", r.ID())
 }
 
 type conn struct {
@@ -180,12 +180,12 @@ func (interceptor) InterceptCustomMessage(r hibari.Room, user hibari.InRoomUser,
 }
 
 func main() {
-	ra := roomAllocator{
+	rs := roomSuggester{
 		rule: rule{
 			maxUser: 3,
 		},
 	}
-	manager := hibari.NewManager(ra, &hibari.ManagerOption{
+	manager := hibari.NewManager(rs, &hibari.ManagerOption{
 		Authenticator: authenticator{
 			userMap: map[string]user{
 				"test1": user{

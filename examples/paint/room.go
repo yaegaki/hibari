@@ -7,32 +7,31 @@ import (
 	"github.com/yaegaki/hibari"
 )
 
-type roomAllocator struct {
+type roomSuggester struct {
 }
 
 type roomHandler struct {
-	id string
 }
 
-func (roomAllocator) Alloc(ctx context.Context, id string, m hibari.Manager) (hibari.Room, error) {
-	rh := &roomHandler{
-		id: id,
-	}
-
-	return hibari.NewRoom(id, m, rh, hibari.RoomOption{}), nil
+func (roomSuggester) Suggest(req hibari.CreateRoomRequest, m hibari.Manager) (hibari.RoomSuggestion, error) {
+	return hibari.RoomSuggestion{
+		ID:          req.ID,
+		RoomHandler: roomHandler{},
+	}, nil
 }
 
-func (roomAllocator) Free(string) {
+func (roomHandler) OnCreate(r hibari.Room) {
+	log.Printf("Create room %v", r.ID())
 }
 
-func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
+func (roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
 	return nil
 }
 
-func (rh *roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
+func (roomHandler) OnJoinUser(_ hibari.Room, _ hibari.InRoomUser) {
 }
 
-func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
+func (roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 	roomInfo := r.RoomInfo()
 	if len(roomInfo.UserMap) > 0 {
 		return
@@ -41,11 +40,11 @@ func (rh *roomHandler) OnDisconnectUser(r hibari.Room, _ hibari.InRoomUser) {
 	r.Close()
 }
 
-func (rh *roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
+func (roomHandler) OnCustomMessage(r hibari.Room, user hibari.InRoomUser, kind hibari.CustomMessageKind, body interface{}) {
 	// disconnect user
 	r.Leave(user.User.ID)
 }
 
-func (rh *roomHandler) OnClose() {
-	log.Printf("Close room %v", rh.id)
+func (roomHandler) OnClose(r hibari.Room) {
+	log.Printf("Close room %v", r.ID())
 }

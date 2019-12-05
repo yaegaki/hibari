@@ -14,7 +14,7 @@ type Room interface {
 	Close() AsyncOperation
 	Enqueue(f func()) (AsyncOperation, error)
 
-	// ForGoroutine creates goroutine safe room.
+	// ForGoroutine creates a goroutine safe room.
 	ForGoroutine() GoroutineSafeRoom
 
 	ID() string
@@ -129,32 +129,52 @@ func (u roomUser) InRoomUser() InRoomUser {
 	}
 }
 
-// RoomAllocator creates new room
-type RoomAllocator interface {
-	Alloc(ctx context.Context, id string, m Manager) (Room, error)
-	Free(id string)
+// CreateRoomRequest contains info for RoomSuggester.
+type CreateRoomRequest struct {
+	Context context.Context
+	ID      string
 }
 
-type internalRoomAllocator struct{}
-
-func (internalRoomAllocator) Alloc(_ context.Context, id string, m Manager) (Room, error) {
-	return NewRoom(id, m, nil, RoomOption{}), nil
+// RoomSuggestion contains room creation info.
+type RoomSuggestion struct {
+	ID          string
+	RoomHandler RoomHandler
+	Option      RoomOption
 }
 
-func (internalRoomAllocator) Free(string) {
+// RoomSuggester suggests a room creation info.
+type RoomSuggester interface {
+	Suggest(req CreateRoomRequest, m Manager) (RoomSuggestion, error)
 }
 
-// RoomHandler customizes room behavior
+type internalRoomSuggester struct{}
+
+func (internalRoomSuggester) Suggest(req CreateRoomRequest, m Manager) (RoomSuggestion, error) {
+	return RoomSuggestion{
+		ID:          req.ID,
+		RoomHandler: internalRoomHandler{},
+	}, nil
+}
+
+// RoomHandler customizes the room behavior.
 type RoomHandler interface {
+	OnCreate(r Room)
+	OnClose(r Room)
+
 	ValidateJoinUser(ctx context.Context, r Room, u User) error
 
 	OnJoinUser(r Room, user InRoomUser)
 	OnDisconnectUser(r Room, user InRoomUser)
 	OnCustomMessage(r Room, user InRoomUser, kind CustomMessageKind, body interface{})
-	OnClose()
 }
 
 type internalRoomHandler struct{}
+
+func (internalRoomHandler) OnCreate(Room) {
+}
+
+func (internalRoomHandler) OnClose(Room) {
+}
 
 func (internalRoomHandler) ValidateJoinUser(context.Context, Room, User) error {
 	return nil
@@ -169,11 +189,7 @@ func (internalRoomHandler) OnDisconnectUser(Room, InRoomUser) {
 func (internalRoomHandler) OnCustomMessage(Room, InRoomUser, CustomMessageKind, interface{}) {
 }
 
-func (internalRoomHandler) OnClose() {
-}
-
-// NewRoom creates a new Room
-func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
+func newRoom(id string, m Manager, rh RoomHandler, option RoomOption) *room {
 	if rh == nil {
 		rh = internalRoomHandler{}
 	}
@@ -191,7 +207,7 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 	}
 
 	r := &room{
-		id:          roomID,
+		id:          id,
 		option:      option,
 		manager:     m,
 		handler:     rh,
@@ -204,7 +220,7 @@ func NewRoom(roomID string, m Manager, rh RoomHandler, option RoomOption) Room {
 		closeOnce:   &sync.Once{},
 	}
 
-	return r.ForGoroutine()
+	return r
 }
 
 func (r *room) Run() {
@@ -212,13 +228,15 @@ func (r *room) Run() {
 		t := time.NewTicker(r.option.Deadline)
 		defer t.Stop()
 
+		r.handler.OnCreate(r)
+
 		updatedTime := time.Now()
 		for {
 			select {
 			case msg := <-r.msgCh:
 				// r.logger.Printf("%v", msg)
 				if msg.kind == internalCloseMessage {
-					r.handler.OnClose()
+					r.handler.OnClose(r)
 					break
 				}
 

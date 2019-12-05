@@ -30,7 +30,7 @@ type manager struct {
 	option     ManagerOption
 	wg         *sync.WaitGroup
 	closeOnce  *sync.Once
-	allocator  RoomAllocator
+	suggester  RoomSuggester
 	roomMap    roomMap
 	shutdownCh chan struct{}
 }
@@ -46,9 +46,9 @@ type ManagerOption struct {
 }
 
 // NewManager creates a new Manager
-func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
-	if ra == nil {
-		ra = internalRoomAllocator{}
+func NewManager(suggester RoomSuggester, option *ManagerOption) Manager {
+	if suggester == nil {
+		suggester = internalRoomSuggester{}
 	}
 
 	if option == nil {
@@ -63,7 +63,7 @@ func NewManager(ra RoomAllocator, option *ManagerOption) Manager {
 		option:    *option,
 		wg:        &sync.WaitGroup{},
 		closeOnce: &sync.Once{},
-		allocator: ra,
+		suggester: suggester,
 		roomMap:   roomMap{m: &sync.Map{}},
 	}
 
@@ -146,19 +146,29 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafe
 		}
 	}
 
-	newRoom, err := m.allocator.Alloc(ctx, id, m)
+	req := CreateRoomRequest{
+		Context: ctx,
+		ID:      id,
+	}
+
+	suggestion, err := m.suggester.Suggest(req, m)
 	if err != nil {
 		return nil, err
 	}
 
-	// allow modify roomID by RoomAllocator
-	id = newRoom.ID()
+	if suggestion.RoomHandler == nil {
+		panic("suggestion.RoomHandler must not be nil")
+	}
+
+	// allow modify the roomID by RoomAllocator.
+	id = suggestion.ID
 
 	if id == "" {
 		return nil, errors.New("invalid RoomID")
 	}
 
-	gsRoom, loaded := m.roomMap.LoadOrStore(id, newRoom.ForGoroutine())
+	room := newRoom(id, m, suggestion.RoomHandler, suggestion.Option)
+	gsRoom, loaded := m.roomMap.LoadOrStore(id, room.ForGoroutine())
 
 	if !loaded {
 		go gsRoom.Run()
@@ -168,8 +178,6 @@ func (m *manager) GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafe
 }
 
 func (m *manager) NotifyRoomClosed(id string) {
-	m.allocator.Free(id)
-
 	room, ok := m.roomMap.Load(id)
 	if !ok {
 		return
