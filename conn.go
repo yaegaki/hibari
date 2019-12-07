@@ -67,38 +67,19 @@ func StartConn(m Manager, ct ConnTransport, option ConnOption) {
 func (c *conn) readPump() {
 	defer c.Close()
 
-	msg, err := c.trans.ReadMessage()
+	n, err := c.manager.Negotiate(c.trans)
 	if err != nil {
-		log.Printf("Read error: %v", err)
+		if err == ErrAuthenticationFailed {
+			c.OnAuthenticationFailed()
+			log.Printf("Authentication failed: %v", err)
+		}
+
 		return
 	}
 
-	if msg.Kind != JoinMessage {
-		log.Printf("Invalid message kind when join room: %v", msg.Kind)
-		return
-	}
-
-	body, ok := msg.Body.(JoinMessageBody)
-	if !ok {
-		log.Printf("Invalid JoinMessageBody")
-		return
-	}
-
-	roomID := body.RoomID
-
-	ctx := c.trans.Context()
-	user, err := c.manager.Authenticate(ctx, body.UserID, body.Secret)
-	if err != nil {
-		c.OnAuthenticationFailed()
-		log.Printf("Authentication failed: %v", err)
-		return
-	}
-
-	ctx, err = c.manager.Negotiate(ctx, c.trans)
-	if err != nil {
-		log.Printf("Config context failed: %v", err)
-		return
-	}
+	ctx := n.Context
+	user := n.User
+	roomID := n.RoomID
 
 	room, err := c.manager.GetOrCreateRoom(ctx, roomID)
 	if err != nil {
@@ -112,9 +93,6 @@ func (c *conn) readPump() {
 		c.safeSendMessage(Message{Kind: OnJoinFailedMessage})
 		return
 	}
-
-	// clear secret on memory
-	body = JoinMessageBody{}
 
 	defer room.Leave(user.ID)
 	for {

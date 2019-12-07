@@ -14,7 +14,7 @@ type Manager interface {
 	RoomMap() RoomMap
 	RoomInfoAll() <-chan RoomInfo
 	Authenticate(ctx context.Context, id, secret string) (User, error)
-	Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error)
+	Negotiate(trans ConnTransport) (NegotiationResult, error)
 	GetRoom(id string) (GoroutineSafeRoom, bool)
 	GetOrCreateRoom(ctx context.Context, id string) (GoroutineSafeRoom, error)
 	NotifyRoomClosed(id string)
@@ -52,6 +52,10 @@ func NewManager(suggester RoomSuggester, option *ManagerOption) Manager {
 
 	if option == nil {
 		option = &ManagerOption{}
+	}
+
+	if option.Negotiator == nil {
+		option.Negotiator = DefaultNegotiator{}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,12 +119,8 @@ func (m *manager) Authenticate(ctx context.Context, id, secret string) (User, er
 	return m.option.Authenticator.Authenticate(ctx, id, secret)
 }
 
-func (m *manager) Negotiate(ctx context.Context, trans ConnTransport) (context.Context, error) {
-	if m.option.Negotiator == nil {
-		return ctx, nil
-	}
-
-	return m.option.Negotiator.Negotiate(ctx, trans)
+func (m *manager) Negotiate(trans ConnTransport) (NegotiationResult, error) {
+	return m.option.Negotiator.Negotiate(trans, m)
 }
 
 func (m *manager) GetRoom(id string) (GoroutineSafeRoom, bool) {
