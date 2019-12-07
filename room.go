@@ -426,7 +426,6 @@ func (r *room) join(ctx context.Context, user User, conn Conn, interception bool
 	if err != nil {
 		// already user is joined but disconnected. so room must send leave message for other users.
 		r.enqueueLeave(joinedUser.u.ID)
-		return nil, err
 	}
 
 	// user join completed.
