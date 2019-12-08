@@ -6,7 +6,7 @@ import (
 
 // RoomInterceptor intercept join/broadcast/custom message.
 type RoomInterceptor interface {
-	InterceptJoin(ctx context.Context, room Room, user User, conn Conn) (JoinInterceptionResult, context.Context)
+	InterceptJoin(room Room, user InRoomUser) (JoinInterceptionResult, context.Context)
 	InterceptBroadcast(room Room, user InRoomUser, body interface{}) MessageInterceptionResult
 	InterceptCustomMessage(room Room, user InRoomUser, kind CustomMessageKind, body interface{}) MessageInterceptionResult
 }
@@ -40,7 +40,7 @@ type NilRoomInterceptor struct {
 }
 
 // InterceptJoin is always return JoinInterceptionAllow.
-func (NilRoomInterceptor) InterceptJoin(ctx context.Context, room Room, user User, conn Conn) (JoinInterceptionResult, context.Context) {
+func (NilRoomInterceptor) InterceptJoin(room Room, user InRoomUser) (JoinInterceptionResult, context.Context) {
 	return JoinInterceptionAllow, nil
 }
 

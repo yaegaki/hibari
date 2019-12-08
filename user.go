@@ -13,4 +13,5 @@ type InRoomUser struct {
 	Ctx   context.Context
 	Index int
 	User  User
+	Conn  Conn
 }
