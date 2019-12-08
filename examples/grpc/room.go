@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 
 	"github.com/yaegaki/hibari"
@@ -23,7 +22,7 @@ func (roomSuggester) Suggest(req hibari.CreateRoomRequest, m hibari.Manager) (hi
 func (roomHandler) OnCreate(hibari.Room) {
 }
 
-func (roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
+func (roomHandler) ValidateJoinUser(r hibari.Room, u hibari.InRoomUser) error {
 	return nil
 }
 

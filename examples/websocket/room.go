@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -40,7 +39,7 @@ func (rs *roomSuggester) Suggest(req hibari.CreateRoomRequest, m hibari.Manager)
 func (rh *roomHandler) OnCreate(hibari.Room) {
 }
 
-func (rh *roomHandler) ValidateJoinUser(ctx context.Context, r hibari.Room, u hibari.User) error {
+func (rh *roomHandler) ValidateJoinUser(r hibari.Room, u hibari.InRoomUser) error {
 	roomInfo := r.RoomInfo()
 	userCount := len(roomInfo.UserMap)
 	if userCount >= rh.rule.maxUser {
@@ -77,11 +76,6 @@ func (rh *roomHandler) OnClose(r hibari.Room) {
 }
 
 func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUser) {
-	conn, err := r.GetConn(user.User.ID)
-	if err != nil {
-		return
-	}
-
 	userMap := map[string]shortUser{}
 	roomInfo := r.RoomInfo()
 	for id, u := range roomInfo.UserMap {
@@ -102,8 +96,8 @@ func (rh *roomHandler) handleRoomInfoMessage(r hibari.Room, user hibari.InRoomUs
 		return
 	}
 
-	if err = conn.OnBroadcast(user, bin); err != nil {
-		conn.Close()
+	if err = user.Conn.OnBroadcast(user, bin); err != nil {
+		user.Conn.Close()
 	}
 }
 
@@ -135,13 +129,13 @@ func (rh *roomHandler) handleDiceMessage(r hibari.Room, user hibari.InRoomUser) 
 
 	roomInfo := r.RoomInfo()
 	for userID := range roomInfo.UserMap {
-		conn, err := r.GetConn(userID)
+		u, err := r.GetUser(userID)
 		if err != nil {
 			continue
 		}
 
-		if err = conn.OnBroadcast(sys, bin); err != nil {
-			conn.Close()
+		if err = u.Conn.OnBroadcast(sys, bin); err != nil {
+			u.Conn.Close()
 		}
 	}
 }

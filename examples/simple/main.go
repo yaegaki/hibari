@@ -70,18 +70,18 @@ type roomHandler struct {
 func (rh *roomHandler) OnCreate(hibari.Room) {
 }
 
-func (rh *roomHandler) ValidateJoinUser(userCtx context.Context, r hibari.Room, u hibari.User) error {
+func (rh *roomHandler) ValidateJoinUser(r hibari.Room, u hibari.InRoomUser) error {
 	roomInfo := r.RoomInfo()
 
 	if len(roomInfo.UserMap) >= rh.rule.maxUser {
 		return fmt.Errorf("No vacancy")
 	}
 
-	customValue := userCtx.Value("custom")
+	customValue := u.Ctx.Value("custom")
 	if customValue != nil {
 		v, ok := customValue.(string)
 		if ok {
-			log.Printf("%v CustomValue: %v", u.ID, v)
+			log.Printf("%v CustomValue: %v", u.User.ID, v)
 		}
 	}
 
@@ -155,14 +155,15 @@ func (c conn) Close() {
 type interceptor struct {
 }
 
-func (interceptor) InterceptJoin(ctx context.Context, r hibari.Room, user hibari.User, conn hibari.Conn) (hibari.JoinInterceptionResult, context.Context) {
+func (interceptor) InterceptJoin(r hibari.Room, u hibari.InRoomUser) (hibari.JoinInterceptionResult, context.Context) {
+	user := u.User
 	roomID := r.ID()
 	if roomID == "roomA" && user.ID == "test2" {
 		log.Printf("Pending:%v", user.ID)
 		pendingCtx, cancel := context.WithCancel(context.Background())
 		go func() {
 			<-time.After(3 * time.Second)
-			r.ForGoroutine().JoinWithoutInterception(ctx, user, conn)
+			r.ForGoroutine().JoinWithoutInterception(u.Ctx, user, u.Conn)
 			cancel()
 		}()
 		return hibari.JoinInterceptionPending, pendingCtx
